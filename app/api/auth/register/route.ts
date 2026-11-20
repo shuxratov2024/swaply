@@ -1,0 +1,96 @@
+import { NextRequest, NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
+import { findUserByEmail, createUser } from '@/lib/db'
+import { signToken } from '@/lib/auth'
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { name, email, password } = body
+
+    // Validatsiya
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return NextResponse.json(
+        { error: 'Ismingizni kiriting' },
+        { status: 400 }
+      )
+    }
+
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return NextResponse.json(
+        { error: 'Email manzil majburiy' },
+        { status: 400 }
+      )
+    }
+
+    if (!password || typeof password !== 'string') {
+      return NextResponse.json(
+        { error: 'Parol majburiy' },
+        { status: 400 }
+      )
+    }
+
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak' },
+        { status: 400 }
+      )
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email.trim())) {
+      return NextResponse.json(
+        { error: 'Email formati noto\'g\'ri' },
+        { status: 400 }
+      )
+    }
+
+    // Email allaqachon mavjudligini tekshirish
+    const existing = findUserByEmail(email)
+    if (existing) {
+      return NextResponse.json(
+        { error: 'Bu email allaqachon ro\'yxatdan o\'tgan' },
+        { status: 409 }
+      )
+    }
+
+    // Parolni hash qilish
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    // Foydalanuvchini yaratish
+    const newUser = createUser({
+      name: name.trim(),
+      email: email.trim(),
+      passwordHash: hashedPassword,
+    })
+
+    // JWT token yaratish
+    const token = signToken({
+      userId: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+    })
+
+    return NextResponse.json(
+      {
+        message: 'Ro\'yxatdan muvaffaqiyatli o\'tdingiz!',
+        token,
+        user: {
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          avatar: newUser.avatar,
+          bio: newUser.bio,
+          coins: newUser.coins,
+        },
+      },
+      { status: 201 }
+    )
+  } catch (error) {
+    console.error('Register error:', error)
+    return NextResponse.json(
+      { error: 'Serverda xatolik yuz berdi' },
+      { status: 500 }
+    )
+  }
+}
