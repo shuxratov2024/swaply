@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { findUserByEmail, createUser } from '@/lib/db'
+import { findUserByEmail, isUsernameAvailable, createUser } from '@/lib/db'
 import { signToken } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, email, password } = body
+    const { name, username, email, password } = body
 
     // Validatsiya
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json(
         { error: 'Ismingizni kiriting' },
         { status: 400 }
+      )
+    }
+
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      return NextResponse.json(
+        { error: 'Username kiriting (masalan, @azizbek)' },
+        { status: 400 }
+      )
+    }
+
+    // Username bandligini tekshirish
+    const usernameCheck = isUsernameAvailable(username)
+    if (!usernameCheck.available) {
+      return NextResponse.json(
+        { error: usernameCheck.error || 'Bu username band' },
+        { status: 409 }
       )
     }
 
@@ -32,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     if (password.length < 6) {
       return NextResponse.json(
-        { error: 'Parol kamida 6 ta belgidan iborat bo\'lishi kerak' },
+        { error: 'Parol kamida 6 ta belgidan iborat bo‘lishi kerak' },
         { status: 400 }
       )
     }
@@ -40,7 +56,7 @@ export async function POST(request: NextRequest) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email.trim())) {
       return NextResponse.json(
-        { error: 'Email formati noto\'g\'ri' },
+        { error: 'Email formati noto‘g‘ri' },
         { status: 400 }
       )
     }
@@ -49,7 +65,7 @@ export async function POST(request: NextRequest) {
     const existing = findUserByEmail(email)
     if (existing) {
       return NextResponse.json(
-        { error: 'Bu email allaqachon ro\'yxatdan o\'tgan' },
+        { error: 'Bu email allaqachon ro‘yxatdan o‘tgan' },
         { status: 409 }
       )
     }
@@ -60,6 +76,7 @@ export async function POST(request: NextRequest) {
     // Foydalanuvchini yaratish
     const newUser = createUser({
       name: name.trim(),
+      username: username.trim(),
       email: email.trim(),
       passwordHash: hashedPassword,
     })
@@ -73,15 +90,18 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: 'Ro\'yxatdan muvaffaqiyatli o\'tdingiz!',
+        message: 'Ro‘yxatdan muvaffaqiyatli o‘tdingiz!',
         token,
         user: {
           id: newUser.id,
           name: newUser.name,
+          username: newUser.username,
           email: newUser.email,
           avatar: newUser.avatar,
           bio: newUser.bio,
           coins: newUser.coins,
+          lastClaimDate: newUser.lastClaimDate,
+          createdAt: newUser.createdAt,
         },
       },
       { status: 201 }

@@ -35,10 +35,16 @@ export async function GET(request: NextRequest) {
       user: {
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         avatar: user.avatar,
         bio: user.bio,
         coins: user.coins,
+        phone: user.phone,
+        telegram: user.telegram,
+        whatsapp: user.whatsapp,
+        lastClaimDate: user.lastClaimDate,
+        createdAt: user.createdAt,
       },
     })
   } catch (error) {

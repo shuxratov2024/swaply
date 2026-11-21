@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { updateUser, findUserById } from '@/lib/db'
+import { updateUser, isUsernameAvailable } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 
 export async function PUT(request: NextRequest) {
@@ -23,13 +23,28 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, bio, avatar, coins, lastClaimDate } = body
+    const { name, username, bio, avatar, coins, phone, telegram, whatsapp, lastClaimDate } = body
+
+    // Agar username o'zgartirilayotgan bo'lsa, bandligini tekshiramiz
+    if (username !== undefined) {
+      const check = isUsernameAvailable(username, payload.userId)
+      if (!check.available) {
+        return NextResponse.json(
+          { error: check.error || 'Bu username band' },
+          { status: 409 }
+        )
+      }
+    }
 
     const updated = updateUser(payload.userId, {
       ...(name ? { name } : {}),
+      ...(username !== undefined ? { username } : {}),
       ...(bio !== undefined ? { bio } : {}),
-      ...(avatar ? { avatar } : {}),
+      ...(avatar !== undefined ? { avatar } : {}),
       ...(coins !== undefined ? { coins } : {}),
+      ...(phone !== undefined ? { phone } : {}),
+      ...(telegram !== undefined ? { telegram } : {}),
+      ...(whatsapp !== undefined ? { whatsapp } : {}),
       ...(lastClaimDate ? { lastClaimDate } : {}),
     })
 
@@ -45,10 +60,14 @@ export async function PUT(request: NextRequest) {
       user: {
         id: updated.id,
         name: updated.name,
+        username: updated.username,
         email: updated.email,
         avatar: updated.avatar,
         bio: updated.bio,
         coins: updated.coins,
+        phone: updated.phone,
+        telegram: updated.telegram,
+        whatsapp: updated.whatsapp,
       },
     })
   } catch (error) {

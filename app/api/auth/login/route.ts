@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { findUserByEmail } from '@/lib/db'
+import { findUserByEmailOrUsername } from '@/lib/db'
 import { signToken } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -11,17 +11,17 @@ export async function POST(request: NextRequest) {
     // Validatsiya
     if (!email || !password) {
       return NextResponse.json(
-        { error: 'Email va parol majburiy' },
+        { error: 'Email (yoki username) va parol majburiy' },
         { status: 400 }
       )
     }
 
-    // Foydalanuvchini topish
-    const user = findUserByEmail(email)
+    // Foydalanuvchini email yoki username orqali topish
+    const user = findUserByEmailOrUsername(email)
 
     if (!user) {
       return NextResponse.json(
-        { error: 'Email yoki parol noto\'g\'ri' },
+        { error: 'Email/username yoki parol noto‘g‘ri' },
         { status: 401 }
       )
     }
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const isValid = await bcrypt.compare(password, user.password)
     if (!isValid) {
       return NextResponse.json(
-        { error: 'Email yoki parol noto\'g\'ri' },
+        { error: 'Email/username yoki parol noto‘g‘ri' },
         { status: 401 }
       )
     }
@@ -48,10 +48,16 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         avatar: user.avatar,
         bio: user.bio,
         coins: user.coins,
+        phone: user.phone,
+        telegram: user.telegram,
+        whatsapp: user.whatsapp,
+        lastClaimDate: user.lastClaimDate,
+        createdAt: user.createdAt,
       },
     })
   } catch (error) {
