@@ -6,7 +6,7 @@ import { signToken } from '@/lib/auth'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, username, email, password } = body
+    const { name, username, email, password, gender } = body
 
     // Validatsiya
     if (!name || typeof name !== 'string' || !name.trim()) {
@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
       username: username.trim(),
       email: email.trim(),
       passwordHash: hashedPassword,
+      gender: gender === 'male' || gender === 'female' ? gender : 'other',
     })
 
     // JWT token yaratish
@@ -99,6 +100,8 @@ export async function POST(request: NextRequest) {
           email: newUser.email,
           avatar: newUser.avatar,
           bio: newUser.bio,
+          gender: newUser.gender,
+          role: newUser.role,
           coins: newUser.coins,
           lastClaimDate: newUser.lastClaimDate,
           createdAt: newUser.createdAt,

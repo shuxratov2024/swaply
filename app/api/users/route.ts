@@ -5,8 +5,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const query = searchParams.get('query')?.trim() || ''
+    const gender = searchParams.get('gender')?.trim() || ''
 
-    const users = query ? searchUsers(query) : getAllPublicUsers()
+    let users = searchUsers(query, gender || undefined)
 
     return NextResponse.json({ users })
   } catch (error) {

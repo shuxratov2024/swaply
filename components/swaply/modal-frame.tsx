@@ -14,7 +14,7 @@ export function ModalFrame({
   description?: string
   onClose: () => void
   children: ReactNode
-  size?: 'normal' | 'wide'
+  size?: 'normal' | 'wide' | 'narrow'
 }) {
   const dialogRef = useRef<HTMLElement>(null)
 
@@ -57,7 +57,7 @@ export function ModalFrame({
         aria-modal="true"
         aria-labelledby="modal-title"
         aria-describedby={description ? 'modal-description' : undefined}
-        className={`modal-panel ${size === 'wide' ? 'modal-panel-wide' : ''}`}
+        className={`modal-panel ${size === 'wide' ? 'modal-panel-wide' : size === 'narrow' ? 'modal-panel-narrow' : ''}`}
         ref={dialogRef}
         role="dialog"
       >

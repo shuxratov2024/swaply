@@ -23,7 +23,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, username, bio, avatar, coins, phone, telegram, whatsapp, lastClaimDate } = body
+    const { name, username, bio, avatar, gender, coins, phone, telegram, whatsapp, lastClaimDate } = body
 
     // Agar username o'zgartirilayotgan bo'lsa, bandligini tekshiramiz
     if (username !== undefined) {
@@ -41,6 +41,7 @@ export async function PUT(request: NextRequest) {
       ...(username !== undefined ? { username } : {}),
       ...(bio !== undefined ? { bio } : {}),
       ...(avatar !== undefined ? { avatar } : {}),
+      ...(gender !== undefined ? { gender } : {}),
       ...(coins !== undefined ? { coins } : {}),
       ...(phone !== undefined ? { phone } : {}),
       ...(telegram !== undefined ? { telegram } : {}),
@@ -64,10 +65,14 @@ export async function PUT(request: NextRequest) {
         email: updated.email,
         avatar: updated.avatar,
         bio: updated.bio,
+        gender: updated.gender,
+        role: updated.role,
         coins: updated.coins,
         phone: updated.phone,
         telegram: updated.telegram,
         whatsapp: updated.whatsapp,
+        lastClaimDate: updated.lastClaimDate,
+        createdAt: updated.createdAt,
       },
     })
   } catch (error) {

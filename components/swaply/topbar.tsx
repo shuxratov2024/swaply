@@ -1,16 +1,36 @@
 'use client'
 
-import { ArrowUpRight, Check, ChevronDown, Coins, Globe2, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
-import type { Locale } from './types'
+import { useState, useEffect, useRef } from 'react'
+import {
+  ArrowUpRight,
+  BadgeCheck,
+  Check,
+  ChevronDown,
+  Coins,
+  Globe2,
+  LogIn,
+  LogOut,
+  Plus,
+  Search,
+  Shield,
+  Star,
+  User,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react'
+import type { Locale, MemberUser } from './types'
 import { copy } from './translations'
 
 export function Topbar({
   coins,
   claimed,
   name,
+  username,
   avatar,
   locale,
   isLoggedIn,
+  isAdmin,
   onLocaleChange,
   onClaim,
   onAdd,
@@ -19,13 +39,17 @@ export function Topbar({
   onRegister,
   onLogout,
   onWalletClick,
+  onOpenAdmin,
+  onSelectUser,
 }: {
   coins: number
   claimed: boolean
   name: string
+  username?: string
   avatar: string
   locale: Locale
   isLoggedIn: boolean
+  isAdmin?: boolean
   onLocaleChange: (locale: Locale) => void
   onClaim: () => void
   onAdd: () => void
@@ -34,8 +58,54 @@ export function Topbar({
   onRegister: () => void
   onLogout: () => void
   onWalletClick?: () => void
+  onOpenAdmin?: () => void
+  onSelectUser?: (member: MemberUser) => void
 }) {
   const text = copy[locale]
+  const [headerSearch, setHeaderSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<MemberUser[]>([])
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Headerda foydalanuvchilarni Ism, Familiya va @username orqali qidirish
+  useEffect(() => {
+    const clean = headerSearch.trim()
+    if (!clean || clean.length < 2) {
+      setSearchResults([])
+      setShowDropdown(false)
+      return
+    }
+
+    setSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/users?query=${encodeURIComponent(clean)}`)
+        const data = await res.json()
+        if (Array.isArray(data.users)) {
+          setSearchResults(data.users)
+          setShowDropdown(true)
+        }
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearching(false)
+      }
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [headerSearch])
+
+  // Tashqariga bosganda dropdownni yopish
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <header className="topbar-wrap">
@@ -50,12 +120,100 @@ export function Topbar({
           <span className="brand-tag">{text.skillBarter}</span>
         </a>
 
-        <div className="nav-links">
-          <a href="#offers">{text.offers}</a>
-          <a href="#how-it-works">{text.howItWorks}</a>
+        {/* Header Smart User Search (Name, Last Name, @username) */}
+        <div className="header-user-search-wrap" ref={dropdownRef}>
+          <div className="header-search-input-box">
+            <Search className="header-search-icon" size={14} />
+            <input
+              className="header-search-input"
+              onChange={(e) => setHeaderSearch(e.target.value)}
+              onFocus={() => {
+                if (searchResults.length > 0) setShowDropdown(true)
+              }}
+              placeholder="Foydalanuvchilarni qidirish (@amir, Ism, Familiya)..."
+              type="text"
+              value={headerSearch}
+            />
+            {headerSearch && (
+              <button
+                className="header-clear-search"
+                onClick={() => {
+                  setHeaderSearch('')
+                  setShowDropdown(false)
+                }}
+                type="button"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Profile Dropdown */}
+          {showDropdown && (
+            <div className="header-search-dropdown surface-card">
+              <div className="dropdown-heading">
+                <span>Topilgan foydalanuvchilar ({searchResults.length})</span>
+              </div>
+
+              {searchResults.length === 0 ? (
+                <div className="dropdown-empty">
+                  {searching ? 'Qidirilmoqda...' : 'Foydalanuvchi topilmadi'}
+                </div>
+              ) : (
+                <div className="dropdown-list">
+                  {searchResults.slice(0, 6).map((user) => (
+                    <div
+                      className="dropdown-user-item"
+                      key={user.id}
+                      onClick={() => {
+                        onSelectUser?.(user)
+                        setShowDropdown(false)
+                      }}
+                    >
+                      <img
+                        alt={user.name}
+                        className="dropdown-user-avatar"
+                        onError={(e) => {
+                          e.currentTarget.src = '/placeholder-user.jpg'
+                        }}
+                        src={user.avatar || '/placeholder-user.jpg'}
+                      />
+                      <div className="dropdown-user-meta">
+                        <div className="dropdown-user-name">
+                          <strong>{user.name}</strong>
+                          {user.gender === 'male' && <span className="mini-gender">👨</span>}
+                          {user.gender === 'female' && <span className="mini-gender">👩</span>}
+                        </div>
+                        <span className="dropdown-user-username">@{user.username}</span>
+                      </div>
+                      <div className="dropdown-user-skills">
+                        {user.skillsTeach && user.skillsTeach.length > 0 && (
+                          <span className="dropdown-teach-badge">↗ {user.skillsTeach[0]}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="topbar-actions">
+          {/* Admin panel trigger */}
+          {isAdmin && (
+            <button
+              aria-label="Admin panel"
+              className="admin-topbar-pill"
+              onClick={onOpenAdmin}
+              title="Admin Dashboard: Tahlil va monitoring"
+              type="button"
+            >
+              <Shield size={14} />
+              <span>Admin</span>
+            </button>
+          )}
+
           <div
             className="wallet-pill"
             aria-label={`${text.wallet}: ${coins} ${text.coinLabel}`}
@@ -130,7 +288,13 @@ export function Topbar({
                 <span className="profile-name">{name || 'Foydalanuvchi'}</span>
                 <ChevronDown aria-hidden="true" className="profile-chevron" size={14} />
               </button>
-              <button aria-label="Chiqish" className="signin-trigger logout-trigger" onClick={onLogout} title="Hisobdan chiqish" type="button">
+              <button
+                aria-label="Chiqish"
+                className="signin-trigger logout-trigger"
+                onClick={onLogout}
+                title="Hisobdan chiqish"
+                type="button"
+              >
                 <LogOut aria-hidden="true" size={14} />
                 <span>Chiqish</span>
               </button>

@@ -9,7 +9,8 @@
       "bio": "Full-stack muhandis. Skill almashishga doim tayyorman!",
       "coins": 6,
       "createdAt": "2026-11-20T19:36:19.285Z",
-      "username": "akmal"
+      "username": "akmal",
+      "gender": "other"
     },
     {
       "id": 2,
@@ -21,7 +22,9 @@
       "coins": 0,
       "createdAt": "2026-11-20T19:40:40.086Z",
       "lastClaimDate": "2026-11-21",
-      "username": "amir"
+      "username": "amir",
+      "gender": "other",
+      "role": "admin"
     }
   ],
   "offers": [
@@ -40,7 +43,9 @@
       "telegram": "@switz001",
       "id": "offer-1795264246081-428",
       "createdAt": "2026-11-21T12:30:46.081Z",
-      "username": "amir"
+      "username": "amir",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "userId": 2,
@@ -56,7 +61,9 @@
       "contact": "@dilnoza_swaply",
       "id": "offer-1795203700164-51",
       "createdAt": "2026-11-20T19:41:40.164Z",
-      "username": "amir"
+      "username": "amir",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "name": "Akmal Karimov",
@@ -70,7 +77,9 @@
       "description": "Next.js da real backend va auth tizimlar yaratishni o'rgataman.",
       "contact": "@akmal_dev",
       "id": "offer-1795203433445-747",
-      "createdAt": "2026-11-20T19:37:13.445Z"
+      "createdAt": "2026-11-20T19:37:13.445Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-1",
@@ -84,7 +93,9 @@
       "category": "UI/UX & 3D",
       "description": "3 yillik tajribam bor. Figma’da portfolio va real loyiha ustida birga ishlaymiz.",
       "contact": "@malika_design",
-      "createdAt": "2026-11-20T19:36:18.966Z"
+      "createdAt": "2026-11-20T19:36:18.966Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-2",
@@ -98,7 +109,9 @@
       "category": "IT & Dasturlash",
       "description": "Frontend’da ishga kirishga tayyorlayman. Siz bilan amaliy loyiha qurishga tayyorman.",
       "contact": "@aziz_codes",
-      "createdAt": "2026-11-20T19:36:18.977Z"
+      "createdAt": "2026-11-20T19:36:18.977Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-3",
@@ -111,7 +124,9 @@
       "category": "Ingliz tili / IELTS",
       "description": "IELTS 8.0 sohibasi. Speaking klub va talaffuz mashg‘ulotlarini olib boraman.",
       "contact": "@sofia_speaks",
-      "createdAt": "2026-11-20T19:36:18.977Z"
+      "createdAt": "2026-11-20T19:36:18.977Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-4",
@@ -125,7 +140,9 @@
       "category": "Mobilografiya",
       "description": "Telefon bilan cinematic video olish sirlarini ochaman. Ko‘chada amaliy suratga olamiz.",
       "contact": "@javohir.frames",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-5",
@@ -139,7 +156,9 @@
       "category": "UI/UX & 3D",
       "description": "Brending va vizual tizimlarni noldan yaratishni o‘rgataman. Birga moodboard qilamiz.",
       "contact": "@nargiza.creates",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-6",
@@ -152,7 +171,9 @@
       "category": "IT & Dasturlash",
       "description": "Native rus tilida so‘zlashuvchiman. Haftada ikki marta erkin muloqot qilamiz.",
       "contact": "@timur_talks",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-7",
@@ -166,7 +187,9 @@
       "category": "UI/UX & 3D",
       "description": "Kichik bizneslar uchun kontent reja tuzaman. Siz bilan bir haftalik rejani amalda qilamiz.",
       "contact": "@swaply_demo_madina",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-8",
@@ -180,7 +203,9 @@
       "category": "IT & Dasturlash",
       "description": "Takroriy vazifalarni Python bilan yengillashtirishni o‘rgataman. Boshlovchilar uchun ham mos.",
       "contact": "@swaply_demo_oybek",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     },
     {
       "id": "offer-9",
@@ -193,7 +218,10 @@
       "category": "Mobilografiya",
       "description": "Tabiiy yorug‘likda portret olish va kadr kompozitsiyasini birga mashq qilamiz.",
       "contact": "@swaply_demo_kamila",
-      "createdAt": "2026-11-20T19:36:18.978Z"
+      "createdAt": "2026-11-20T19:36:18.978Z",
+      "location": "Toshkent",
+      "gender": "other"
     }
-  ]
+  ],
+  "reports": []
 }

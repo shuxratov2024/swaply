@@ -8,8 +8,10 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category')
     const search = searchParams.get('search')?.toLowerCase().trim()
     const userIdParam = searchParams.get('userId')
+    const gender = searchParams.get('gender')
+    const location = searchParams.get('location')
 
-    let offers = getAllOffers()
+    let offers = getAllOffers(gender || undefined, location || undefined)
 
     if (userIdParam) {
       const parsedUserId = parseInt(userIdParam, 10)
@@ -22,9 +24,13 @@ export async function GET(request: NextRequest) {
       offers = offers.filter((o) => o.category === category)
     }
 
+    if (gender && gender !== 'all') {
+      offers = offers.filter((o) => o.gender === gender)
+    }
+
     if (search) {
       offers = offers.filter((o) => {
-        const text = `${o.name} ${o.canTeach} ${o.wantsToLearn} ${o.category} ${o.description}`.toLowerCase()
+        const text = `${o.name} ${o.username || ''} ${o.canTeach} ${o.wantsToLearn} ${o.category} ${o.description} ${o.location || ''}`.toLowerCase()
         return text.includes(search)
       })
     }
@@ -70,6 +76,8 @@ export async function POST(request: NextRequest) {
       wantsToLearn,
       category,
       description,
+      location,
+      gender,
       phone,
       telegram,
       whatsapp,
@@ -112,6 +120,8 @@ export async function POST(request: NextRequest) {
       wantsToLearn: wantsToLearn.trim(),
       category: category.trim(),
       description: description.trim(),
+      location: location?.trim() || 'Toshkent',
+      gender: gender || user.gender || 'other',
       contact: primaryContact,
       phone: cleanPhone || undefined,
       telegram: cleanTelegram || undefined,

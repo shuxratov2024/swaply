@@ -2,18 +2,23 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowUpRight,
   BadgeCheck,
   Check,
+  Flag,
   Heart,
   LogIn,
   Mail,
   MapPin,
   Search,
+  Shield,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   Star,
   Tag,
+  UnlockKeyhole,
   User,
   UserPlus,
   Users,
@@ -28,10 +33,14 @@ import {
   ProfileModal,
   PublicProfileModal,
   WalletModal,
+  ConfirmUnlockModal,
+  SecurityNoticeModal,
+  ReportModal,
+  AdminPanelModal,
   type AuthUser,
 } from './swaply-modals'
 import { copy } from './translations'
-import { type Locale, type Offer, type MemberUser, avatarOptions } from './types'
+import { type Locale, type Offer, type MemberUser, type Gender, avatarOptions } from './types'
 
 const initialOffers: Offer[] = [
   {
@@ -46,6 +55,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: 'Ingliz tili',
     category: 'UI/UX & 3D',
     description: '3 yillik tajribam bor. Figma’da portfolio va real loyiha ustida birga ishlaymiz.',
+    location: 'Toshkent, Chilonzor',
+    gender: 'female',
     contact: '@malika_design',
     telegram: '@malika_design',
     phone: '+998 90 111 22 33',
@@ -62,6 +73,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: 'Video montaj',
     category: 'IT & Dasturlash',
     description: 'Frontend’da ishga kirishga tayyorlayman. Siz bilan amaliy loyiha qurishga tayyorman.',
+    location: 'Toshkent, Yunusobod',
+    gender: 'male',
     contact: '@aziz_codes',
     telegram: '@aziz_codes',
     whatsapp: '+998 93 456 78 90',
@@ -77,6 +90,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: '3D Blender',
     category: 'Ingliz tili / IELTS',
     description: 'IELTS 8.0 sohibasi. Speaking klub va talaffuz mashg‘ulotlarini olib boraman.',
+    location: 'Samarqand',
+    gender: 'female',
     contact: '@sofia_speaks',
     telegram: '@sofia_speaks',
     phone: '+998 97 888 77 66',
@@ -93,6 +108,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: 'Python asoslari',
     category: 'Mobilografiya',
     description: 'Telefon bilan cinematic video olish sirlarini ochaman. Ko‘chada amaliy suratga olamiz.',
+    location: 'Toshkent, Mirzo Ulug‘bek',
+    gender: 'male',
     contact: '@javohir_frames',
     telegram: '@javohir_frames',
     phone: '+998 94 333 44 55',
@@ -109,6 +126,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: 'SMM strategiya',
     category: 'UI/UX & 3D',
     description: 'Brending va vizual tizimlarni noldan yaratishni o‘rgataman. Birga moodboard qilamiz.',
+    location: 'Farg‘ona',
+    gender: 'female',
     contact: '@nargiza_creates',
     telegram: '@nargiza_creates',
     whatsapp: '+998 90 999 00 11',
@@ -124,6 +143,8 @@ const initialOffers: Offer[] = [
     wantsToLearn: 'Git & GitHub',
     category: 'IT & Dasturlash',
     description: 'Native rus tilida so‘zlashuvchiman. Haftada ikki marta erkin muloqot qilamiz.',
+    location: 'Toshkent, Mirobod',
+    gender: 'male',
     contact: '@timur_talks',
     telegram: '@timur_talks',
     phone: '+998 91 222 33 44',
@@ -134,27 +155,49 @@ export function SwaplyApp() {
   const [locale, setLocale] = useState<Locale>('UZ')
   const [offers, setOffers] = useState<Offer[]>(initialOffers)
   const [members, setMembers] = useState<MemberUser[]>([])
-  // Authsiz tashrif buyurganda tangalar soni qat'iyan 0 bo'ladi
   const [coins, setCoins] = useState(0)
   const [claimed, setClaimed] = useState(false)
   const [revealedContacts, setRevealedContacts] = useState<string[]>([])
   const [favorites, setFavorites] = useState<string[]>([])
   const [activeCategory, setActiveCategory] = useState(copy.UZ.all)
   const [filterOnlyMine, setFilterOnlyMine] = useState(false)
+  const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all')
   const [viewMode, setViewMode] = useState<'offers' | 'members' | 'favorites'>('offers')
   const [search, setSearch] = useState('')
-  const [modal, setModal] = useState<'auth' | 'offer' | 'profile' | 'wallet' | 'publicProfile' | null>(null)
+  const [modal, setModal] = useState<
+    | 'auth'
+    | 'offer'
+    | 'profile'
+    | 'wallet'
+    | 'publicProfile'
+    | 'confirmUnlock'
+    | 'securityNotice'
+    | 'report'
+    | 'admin'
+    | null
+  >(null)
+
   const [selectedMember, setSelectedMember] = useState<MemberUser | null>(null)
+  const [selectedOfferForUnlock, setSelectedOfferForUnlock] = useState<Offer | null>(null)
+  const [reportTargetOffer, setReportTargetOffer] = useState<Offer | null>(null)
+  const [reportTargetMember, setReportTargetMember] = useState<MemberUser | null>(null)
+
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authReason, setAuthReason] = useState<string>('')
   const [toastMessage, setToastMessage] = useState('')
 
-  // Authsiz holatda hech qanday soxta Dilnoza Karimova ko'rinmaydi!
-  const [profile, setProfile] = useState<{ name: string; username?: string; bio: string; avatar: string }>({
+  const [profile, setProfile] = useState<{
+    name: string
+    username?: string
+    bio: string
+    avatar: string
+    gender?: Gender
+  }>({
     name: '',
     username: '',
     bio: '',
     avatar: '',
+    gender: 'male',
   })
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -162,35 +205,34 @@ export function SwaplyApp() {
   const text = copy[locale]
   const categories = [text.all, ...text.categories]
 
-  // Backenddan takliflarni va a'zolarni yuklab olish
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [offersRes, usersRes] = await Promise.all([
-          fetch('/api/offers'),
-          fetch('/api/users'),
-        ])
+  async function fetchData() {
+    try {
+      const [offersRes, usersRes] = await Promise.all([
+        fetch('/api/offers'),
+        fetch('/api/users'),
+      ])
 
-        if (offersRes.ok) {
-          const offersData = await offersRes.json()
-          if (Array.isArray(offersData.offers) && offersData.offers.length > 0) {
-            setOffers(offersData.offers)
-          }
+      if (offersRes.ok) {
+        const offersData = await offersRes.json()
+        if (Array.isArray(offersData.offers) && offersData.offers.length > 0) {
+          setOffers(offersData.offers)
         }
-
-        if (usersRes.ok) {
-          const usersData = await usersRes.json()
-          if (Array.isArray(usersData.users)) {
-            setMembers(usersData.users)
-          }
-        }
-      } catch (err) {
-        console.warn('Data fetch error, using local fallback:', err)
       }
+
+      if (usersRes.ok) {
+        const usersData = await usersRes.json()
+        if (Array.isArray(usersData.users)) {
+          setMembers(usersData.users)
+        }
+      }
+    } catch (err) {
+      console.warn('Data fetch error, using local fallback:', err)
     }
+  }
+
+  useEffect(() => {
     fetchData()
 
-    // Saqlangan sevimlilarni tiklash
     try {
       const savedFavs = localStorage.getItem('swaply_favorites')
       if (savedFavs) {
@@ -199,7 +241,6 @@ export function SwaplyApp() {
     } catch {}
   }, [])
 
-  // Sahifa yuklanganda token orqali foydalanuvchini tiklash va backend orqali tekshirish
   useEffect(() => {
     const savedUser = localStorage.getItem('swaply_user')
     const savedToken = localStorage.getItem('swaply_token')
@@ -221,9 +262,9 @@ export function SwaplyApp() {
           username: user.username || '',
           bio: user.bio || '',
           avatar: user.avatar || '',
+          gender: user.gender || 'male',
         })
 
-        // Backend orqali tokenni tekshirish va ma'lumotlarni yangilash
         fetch('/api/auth/me', {
           headers: { Authorization: `Bearer ${savedToken}` },
         })
@@ -240,6 +281,7 @@ export function SwaplyApp() {
                 username: data.user.username || '',
                 bio: data.user.bio || '',
                 avatar: data.user.avatar || '',
+                gender: data.user.gender || 'male',
               })
               localStorage.setItem('swaply_user', JSON.stringify(data.user))
             } else {
@@ -264,7 +306,7 @@ export function SwaplyApp() {
     setIsLoggedIn(false)
     setCoins(0)
     setClaimed(false)
-    setProfile({ name: '', username: '', bio: '', avatar: '' })
+    setProfile({ name: '', username: '', bio: '', avatar: '', gender: 'male' })
     setFilterOnlyMine(false)
   }
 
@@ -279,14 +321,20 @@ export function SwaplyApp() {
     return () => window.removeEventListener('keydown', focusSearch)
   }, [])
 
-  // Mening e'lonlarim soni
   const myOffersCount = useMemo(() => {
     if (!authUser) return 0
     return offers.filter((o) => o.userId === authUser.id).length
   }, [offers, authUser])
 
-  // Sevimlilar (Bookmarks) ro'yxatini yangilash
   function toggleBookmark(offerId: string) {
+    if (!isLoggedIn) {
+      setAuthMode('login')
+      setAuthReason('Takliflarni sevimlilarga saqlash uchun profilingizga kiring!')
+      setModal('auth')
+      showToast('Sevimlilarga qo‘shish uchun tizimga kiring')
+      return
+    }
+
     setFavorites((prev) => {
       const next = prev.includes(offerId) ? prev.filter((id) => id !== offerId) : [...prev, offerId]
       localStorage.setItem('swaply_favorites', JSON.stringify(next))
@@ -299,7 +347,6 @@ export function SwaplyApp() {
     })
   }
 
-  // Ko'rinadigan takliflar
   const visibleOffers = useMemo(() => {
     const normalizedQuery = search.trim().toLocaleLowerCase()
 
@@ -310,9 +357,12 @@ export function SwaplyApp() {
     }
 
     return list.filter((offer) => {
-      // Agar "Mening takliflarim" tanlangan bo'lsa
       if (filterOnlyMine && authUser) {
         if (offer.userId !== authUser.id) return false
+      }
+
+      if (genderFilter !== 'all') {
+        if (offer.gender !== genderFilter) return false
       }
 
       const selectedCategoryIndex = categories.indexOf(activeCategory)
@@ -322,48 +372,53 @@ export function SwaplyApp() {
         offer.category === copy.UZ.categories[selectedCategoryIndex - 1]
 
       const searchable =
-        `${offer.name} @${offer.username || ''} ${offer.canTeach} ${offer.wantsToLearn} ${offer.category} ${offer.description}`.toLocaleLowerCase()
+        `${offer.name} @${offer.username || ''} ${offer.canTeach} ${offer.wantsToLearn} ${offer.category} ${offer.description} ${offer.location || ''}`.toLocaleLowerCase()
       return matchesCategory && (!normalizedQuery || searchable.includes(normalizedQuery))
     })
-  }, [activeCategory, categories, offers, search, filterOnlyMine, authUser, viewMode, favorites])
+  }, [activeCategory, categories, offers, search, filterOnlyMine, genderFilter, authUser, viewMode, favorites])
 
-  // Qidiruv bo'yicha filtrlangan a'zolar (Foydalanuvchilar qidiruvi)
   const visibleMembers = useMemo(() => {
     const q = search.trim().toLowerCase().replace(/^@/, '')
-    if (!q) return members
 
-    return members.filter((m) => {
+    let list = members
+
+    if (genderFilter !== 'all') {
+      list = list.filter((m) => m.gender === genderFilter)
+    }
+
+    if (!q) return list
+
+    return list.filter((m) => {
       const nameMatch = m.name.toLowerCase().includes(q)
       const usernameMatch = m.username.toLowerCase().includes(q)
       const bioMatch = m.bio.toLowerCase().includes(q)
+      const locMatch = m.location?.toLowerCase().includes(q)
       const teachMatch = m.skillsTeach?.some((s) => s.toLowerCase().includes(q))
       const learnMatch = m.skillsLearn?.some((s) => s.toLowerCase().includes(q))
-      return nameMatch || usernameMatch || bioMatch || teachMatch || learnMatch
+      return nameMatch || usernameMatch || bioMatch || locMatch || teachMatch || learnMatch
     })
-  }, [members, search])
+  }, [members, search, genderFilter])
 
   function showToast(message: string) {
     setToastMessage(message)
-    window.setTimeout(() => setToastMessage(''), 3000)
+    window.setTimeout(() => setToastMessage(''), 3500)
   }
 
-  // Taklif qo'shish tugmasi bosilganda
   function handleAddOfferClick() {
     if (!isLoggedIn) {
       setAuthMode('register')
-      setAuthReason('Taklif qo‘shishingiz uchun ro‘yxatdan o‘ting yoki o‘z hisobingizga kiring')
+      setAuthReason('Taklif qo‘shishingiz uchun avval ro‘yxatdan o‘ting yoki hisobingizga kiring!')
       setModal('auth')
-      showToast('Taklif qo‘shish uchun avval ro‘yxatdan o‘ting yoki hisobingizga kiring')
+      showToast('Taklif qo‘shish uchun avval tizimga kiring')
       return
     }
     setModal('offer')
   }
 
-  // Kunlik bonus tugmasi bosilganda
   async function handleClaimDailyCoin() {
     if (!isLoggedIn) {
       setAuthMode('register')
-      setAuthReason('Tangalarni olish uchun ro‘yxatdan o‘ting yoki o‘z hisobingizga kiring')
+      setAuthReason('Kunlik bepul tangani olish uchun avval hisobingizga kiring!')
       setModal('auth')
       showToast('Tangalarni olish uchun avval ro‘yxatdan o‘ting yoki tizimga kiring')
       return
@@ -404,11 +459,10 @@ export function SwaplyApp() {
     }
   }
 
-  // Profil bo'limi bosilganda
   function handleProfileClick() {
     if (!isLoggedIn) {
       setAuthMode('login')
-      setAuthReason('Profil bo‘limini ko‘rish va tahrirlash uchun ro‘yxatdan o‘ting yoki tizimga kiring')
+      setAuthReason('Shaxsiy profilingizni boshqarish uchun avval tizimga kiring!')
       setModal('auth')
       showToast('Profil bo‘limi uchun avval tizimga kiring')
       return
@@ -416,12 +470,21 @@ export function SwaplyApp() {
     setModal('profile')
   }
 
-  // A'zoning ommaviy profilini ochish
+  function handleWalletClick() {
+    if (!isLoggedIn) {
+      setAuthMode('login')
+      setAuthReason('Tanga balansi va hamyonni to‘ldirish uchun tizimga kiring!')
+      setModal('auth')
+      showToast('Hamyon bo‘limi uchun avval tizimga kiring')
+      return
+    }
+    setModal('wallet')
+  }
+
   function openPublicProfile(memberOrOffer: MemberUser | Offer) {
     if ('skillsTeach' in memberOrOffer) {
       setSelectedMember(memberOrOffer)
     } else {
-      // Offer dan a'zo ma'lumotini topish yoki yasash
       const found = members.find((m) => m.id === memberOrOffer.userId || m.username === memberOrOffer.username)
       if (found) {
         setSelectedMember(found)
@@ -432,6 +495,8 @@ export function SwaplyApp() {
           username: memberOrOffer.username || memberOrOffer.name.toLowerCase().replace(/\s+/g, '_'),
           avatar: memberOrOffer.avatar,
           bio: memberOrOffer.description || '',
+          gender: memberOrOffer.gender,
+          location: memberOrOffer.location || 'Toshkent',
           rating: memberOrOffer.rating,
           verified: memberOrOffer.verified,
           offersCount: 1,
@@ -447,61 +512,96 @@ export function SwaplyApp() {
     setModal('publicProfile')
   }
 
-  // Kontaktni ochish
-  async function unlockContact(offer: Offer) {
+  // Kontakt ochish tugmasi bosilganda:
+  function handleUnlockContactClick(offer: Offer) {
     if (!isLoggedIn) {
       setAuthMode('login')
-      setAuthReason('Kontaktlarni ochish va bog‘lanish uchun ro‘yxatdan o‘ting yoki hisobingizga kiring')
+      setAuthReason('Kontakt ma’lumotlarini ochish va bog‘lanish uchun avval tizimga kiring!')
       setModal('auth')
       showToast('Kontaktni ochish uchun avval tizimga kiring')
       return
     }
 
-    // O'zining taklifi bo'lsa tekinga ochiladi
     if (offer.userId === authUser?.id) {
       setRevealedContacts((current) => [...current, offer.id])
       showToast('Bu sizning o‘zingizning e‘loningiz')
       return
     }
 
-    if (coins < 1) {
-      showToast('Kontaktni ochish uchun kamida 1 tanga kerak. Kunlik bonusni oling!')
+    if (revealedContacts.includes(offer.id)) {
+      showToast('Kontakt allaqachon ochilgan')
       return
     }
 
-    const newCoins = coins - 1
-    setCoins(newCoins)
-    setRevealedContacts((current) => [...current, offer.id])
-    showToast(`${offer.name} kontakt ma’lumotlari ochildi!`)
+    // Tasdiqlash dialogini ochish:
+    setSelectedOfferForUnlock(offer)
+    setModal('confirmUnlock')
+  }
+
+  // Tasdiqlash modalida "Ha, ochilsin (-1 tanga)" bosilganda:
+  async function handleConfirmUnlock() {
+    if (!selectedOfferForUnlock) return
 
     const token = localStorage.getItem('swaply_token')
-    if (token) {
-      try {
-        const res = await fetch('/api/auth/profile', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ coins: newCoins }),
-        })
-        if (res.ok && authUser) {
-          const updatedUser = { ...authUser, coins: newCoins }
+    if (!token) {
+      setModal('auth')
+      return
+    }
+
+    try {
+      const res = await fetch('/api/coins/spend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ amount: 1 }),
+      })
+      const data = await res.json()
+
+      if (res.ok) {
+        setCoins(data.coins)
+        if (authUser) {
+          const updatedUser = { ...authUser, coins: data.coins }
           setAuthUser(updatedUser)
           localStorage.setItem('swaply_user', JSON.stringify(updatedUser))
         }
-      } catch (err) {
-        console.warn('Coins sync error:', err)
+
+        setRevealedContacts((prev) => [...prev, selectedOfferForUnlock.id])
+        showToast(`${selectedOfferForUnlock.name} kontakt ma’lumotlari ochildi!`)
+
+        // 15 soniyalik xavfsizlik eslatmasini ochish!
+        setModal('securityNotice')
+      } else {
+        showToast(data.error || 'Tangalar yetarli emas!')
       }
+    } catch {
+      showToast('Server bilan bog‘lanishda xatolik yuz berdi')
     }
   }
 
-  // Yangi taklif yaratish
+  // Shikoyat modalini ochish
+  function handleOpenReport(offer?: Offer, member?: MemberUser) {
+    if (!isLoggedIn) {
+      setAuthMode('login')
+      setAuthReason('Shikoyat qoldirish uchun avval tizimga kiring!')
+      setModal('auth')
+      showToast('Shikoyat qoldirish uchun tizimga kiring')
+      return
+    }
+
+    setReportTargetOffer(offer || null)
+    setReportTargetMember(member || null)
+    setModal('report')
+  }
+
   async function createOffer(offerData: {
     canTeach: string
     wantsToLearn: string
     category: string
     description: string
+    location?: string
+    gender?: Gender
     phone?: string
     telegram?: string
     whatsapp?: string
@@ -521,21 +621,16 @@ export function SwaplyApp() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          ...offerData,
-          language: locale,
-        }),
+        body: JSON.stringify(offerData),
       })
 
       const data = await res.json()
 
       if (res.ok && data.offer) {
         setOffers((current) => [data.offer, ...current])
-        setActiveCategory(copy[locale].all)
-        setSearch('')
-        setViewMode('offers')
         setModal(null)
-        showToast('Taklifingiz muvaffaqiyatli qo‘shildi!')
+        showToast('Yangi taklifingiz muvaffaqiyatli e‘lon qilindi!')
+        fetchData()
       } else {
         showToast(data.error || 'Taklif qo‘shishda xatolik yuz berdi')
       }
@@ -544,7 +639,6 @@ export function SwaplyApp() {
     }
   }
 
-  // Taklifni o'chirish
   async function handleDeleteOffer(offerId: string) {
     const token = localStorage.getItem('swaply_token')
     if (!token) return
@@ -554,28 +648,95 @@ export function SwaplyApp() {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
-      const data = await res.json()
 
       if (res.ok) {
         setOffers((current) => current.filter((o) => o.id !== offerId))
-        showToast('Taklif muvaffaqiyatli o‘chirildi')
+        setFavorites((current) => current.filter((id) => id !== offerId))
+        showToast('Taklifingiz muvaffaqiyatli o‘chirildi')
+        fetchData()
       } else {
-        showToast(data.error || 'O‘chirishda xatolik yuz berdi')
+        const data = await res.json()
+        showToast(data.error || 'E‘lonni o‘chirishda xatolik')
       }
     } catch {
-      showToast('Server bilan bog‘lanishda xatolik')
+      showToast('Serverga ulanishda xatolik')
     }
   }
 
-  function changeLocale(nextLocale: Locale) {
-    setActiveCategory(copy[nextLocale].all)
-    setLocale(nextLocale)
+  async function saveProfile(updatedProfile: {
+    name: string
+    username?: string
+    bio: string
+    avatar: string
+    gender?: Gender
+  }) {
+    const token = localStorage.getItem('swaply_token')
+    if (!token) return
+
+    try {
+      const res = await fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updatedProfile),
+      })
+
+      const data = await res.json()
+
+      if (res.ok && data.user) {
+        setProfile({
+          name: data.user.name,
+          username: data.user.username || '',
+          bio: data.user.bio || '',
+          avatar: data.user.avatar || '',
+          gender: data.user.gender || 'male',
+        })
+        setAuthUser(data.user)
+        localStorage.setItem('swaply_user', JSON.stringify(data.user))
+        setModal(null)
+        showToast('Profilingiz muvaffaqiyatli saqlandi!')
+        fetchData()
+      } else {
+        showToast(data.error || 'Profilni yangilashda xatolik')
+      }
+    } catch {
+      showToast('Serverga ulanishda xatolik')
+    }
+  }
+
+  function handleAddCoins(amount: number) {
+    const nextCoins = coins + amount
+    setCoins(nextCoins)
+    showToast(`Hamyoningizga +${amount} tanga qo‘shildi!`)
+
+    const token = localStorage.getItem('swaply_token')
+    if (token) {
+      fetch('/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ coins: nextCoins }),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.user && authUser) {
+            const updated = { ...authUser, coins: nextCoins }
+            setAuthUser(updated)
+            localStorage.setItem('swaply_user', JSON.stringify(updated))
+          }
+        })
+        .catch(() => {})
+    }
   }
 
   function handleAuthDone(user: AuthUser, token: string) {
     setAuthUser(user)
     setIsLoggedIn(true)
-    setCoins(user.coins ?? 0)
+    setCoins(user.coins ?? 5)
 
     const today = new Date().toISOString().split('T')[0]
     if (user.lastClaimDate === today) {
@@ -587,58 +748,13 @@ export function SwaplyApp() {
       username: user.username || '',
       bio: user.bio || '',
       avatar: user.avatar || '',
+      gender: user.gender || 'male',
     })
 
     setModal(null)
     setAuthReason('')
-    showToast(`Xush kelibsiz, ${user.name}! (@${user.username})`)
-  }
-
-  function handleLogout() {
-    handleLogoutCleanup()
-    showToast('Hisobdan chiqdingiz')
-  }
-
-  async function handleProfileSave(nextProfile: {
-    name: string
-    username?: string
-    bio: string
-    avatar: string
-  }) {
-    setProfile(nextProfile)
-    setModal(null)
-
-    const token = localStorage.getItem('swaply_token')
-    if (token) {
-      try {
-        const res = await fetch('/api/auth/profile', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(nextProfile),
-        })
-        const data = await res.json()
-        if (res.ok && data.user) {
-          setAuthUser(data.user)
-          localStorage.setItem('swaply_user', JSON.stringify(data.user))
-          // A'zolar ro'yxatida ham yangilaymiz
-          setMembers((prev) =>
-            prev.map((m) =>
-              m.id === data.user.id
-                ? { ...m, name: data.user.name, username: data.user.username, avatar: data.user.avatar, bio: data.user.bio }
-                : m
-            )
-          )
-          showToast('Profil muvaffaqiyatli yangilandi')
-        } else {
-          showToast(data.error || 'Profilni yangilashda xatolik')
-        }
-      } catch (e) {
-        console.warn('Profile save sync error:', e)
-      }
-    }
+    showToast(`Xush kelibsiz, ${user.name}!`)
+    fetchData()
   }
 
   function openSignInModal() {
@@ -654,49 +770,60 @@ export function SwaplyApp() {
   }
 
   return (
-    <main className="app-shell">
-      <div aria-hidden="true" className="page-grain" />
-      <Topbar
-        avatar={profile.avatar}
-        claimed={claimed}
-        coins={coins}
-        isLoggedIn={isLoggedIn}
-        locale={locale}
-        name={profile.name}
-        onAdd={handleAddOfferClick}
-        onClaim={handleClaimDailyCoin}
-        onEditProfile={handleProfileClick}
-        onLocaleChange={changeLocale}
-        onLogout={handleLogout}
-        onRegister={openRegisterModal}
-        onSignIn={openSignInModal}
-        onWalletClick={() => setModal('wallet')}
-      />
+    <div className="app-shell">
+      <div aria-atomic="true" aria-live="polite" className="sr-only">
+        {toastMessage}
+      </div>
 
-      <div className="page-content">
+      {toastMessage && (
+        <aside aria-label="Xabarnoma" className="toast surface-card">
+          <Sparkles aria-hidden="true" size={15} />
+          <span>{toastMessage}</span>
+        </aside>
+      )}
+
+      <div className="ambient-orb ambient-orb-left" />
+      <div className="ambient-orb ambient-orb-right" />
+
+      <div className="page-wrap">
+        <Topbar
+          avatar={profile.avatar}
+          claimed={claimed}
+          coins={coins}
+          isAdmin={authUser?.role === 'admin' || authUser?.username === 'amir'}
+          isLoggedIn={isLoggedIn}
+          locale={locale}
+          name={profile.name}
+          onAdd={handleAddOfferClick}
+          onClaim={handleClaimDailyCoin}
+          onEditProfile={handleProfileClick}
+          onLocaleChange={setLocale}
+          onLogout={handleLogoutCleanup}
+          onOpenAdmin={() => setModal('admin')}
+          onRegister={openRegisterModal}
+          onSelectUser={openPublicProfile}
+          onSignIn={openSignInModal}
+          onWalletClick={handleWalletClick}
+          username={profile.username}
+        />
+
         <Hero
           activeCategory={activeCategory}
           coinsClaimed={isLoggedIn && claimed}
           locale={locale}
           onAdd={handleAddOfferClick}
-          onCategoryChange={(cat) => {
-            setActiveCategory(cat)
-            setFilterOnlyMine(false)
-            setViewMode('offers')
-          }}
+          onCategoryChange={setActiveCategory}
           onClaim={handleClaimDailyCoin}
           onSearchChange={setSearch}
           search={search}
         />
 
-        {/* Authsiz mehmonlar uchun tushuntirish va chaqiriq banneri */}
         {!isLoggedIn && (
-          <section aria-label="Swaply imkoniyatlari" className="guest-banner surface-card">
+          <section aria-labelledby="guest-banner-title" className="guest-action-banner surface-card">
             <div className="guest-banner-content">
-              <div className="guest-banner-badge">
-                <Sparkles size={13} />
-                <span>Bilim va mahorat barteri</span>
-              </div>
+              <span className="guest-banner-badge">
+                <Sparkles size={13} /> Yangi a‘zolar uchun +5 bepul tanga
+              </span>
               <h3 className="guest-banner-title">O‘z bilimlaringizni boshqalar bilan almashtiring!</h3>
               <p className="guest-banner-text">
                 Hech qanday pul to‘lamasdan dasturlash, chet tillari, dizayn va boshqa sohalarda tajriba almashing.
@@ -746,6 +873,34 @@ export function SwaplyApp() {
               <Heart fill={favorites.length > 0 ? '#ef4444' : 'none'} size={14} />
               <span>Sevimlilar ({favorites.length})</span>
             </button>
+          </div>
+
+          {/* Jins bo'yicha tezkor filtr (Gender filter) */}
+          <div className="gender-filter-bar">
+            <span className="gender-filter-label">Jins bo‘yicha filtr:</span>
+            <div className="gender-filter-pills">
+              <button
+                className={`gender-pill ${genderFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setGenderFilter('all')}
+                type="button"
+              >
+                Barchasi
+              </button>
+              <button
+                className={`gender-pill ${genderFilter === 'male' ? 'active' : ''}`}
+                onClick={() => setGenderFilter('male')}
+                type="button"
+              >
+                👨 Erkak
+              </button>
+              <button
+                className={`gender-pill ${genderFilter === 'female' ? 'active' : ''}`}
+                onClick={() => setGenderFilter('female')}
+                type="button"
+              >
+                👩 Ayol
+              </button>
+            </div>
           </div>
 
           <div className="section-heading-row">
@@ -809,18 +964,36 @@ export function SwaplyApp() {
                         onError={(e) => {
                           e.currentTarget.src = '/placeholder-user.jpg'
                         }}
-                        src={member.avatar || avatarOptions[0]}
+                        src={member.avatar || '/placeholder-user.jpg'}
                       />
                       <div className="member-card-meta">
                         <div className="member-name-row">
                           <h4>{member.name}</h4>
                           {member.verified && <BadgeCheck className="verified-icon" size={14} />}
+                          {member.gender && (
+                            <span className="mini-gender-icon" title={member.gender === 'male' ? 'Erkak' : 'Ayol'}>
+                              {member.gender === 'male' ? '👨' : '👩'}
+                            </span>
+                          )}
                         </div>
                         <div className="member-username-row">@{member.username}</div>
+                        <div className="member-loc-row">
+                          <MapPin size={11} /> {member.location || 'Toshkent'}
+                        </div>
                       </div>
-                      <span className="rating">
-                        <Star fill="currentColor" size={11} /> 5.0
-                      </span>
+                      <div className="member-card-actions-top">
+                        <button
+                          className="member-report-btn"
+                          onClick={() => handleOpenReport(undefined, member)}
+                          title="Foydalanuvchi ustidan shikoyat qilish"
+                          type="button"
+                        >
+                          <Flag size={12} />
+                        </button>
+                        <span className="rating">
+                          <Star fill="currentColor" size={11} /> 5.0
+                        </span>
+                      </div>
                     </div>
 
                     <p className="member-card-bio">
@@ -880,8 +1053,9 @@ export function SwaplyApp() {
                     locale={locale}
                     offer={offer}
                     onDelete={handleDeleteOffer}
+                    onReport={(o) => handleOpenReport(o, undefined)}
                     onToggleBookmark={toggleBookmark}
-                    onUnlock={unlockContact}
+                    onUnlock={handleUnlockContactClick}
                     onViewAuthorProfile={openPublicProfile}
                     revealed={revealedContacts.includes(offer.id)}
                   />
@@ -907,6 +1081,7 @@ export function SwaplyApp() {
                       onClick={() => {
                         setSearch('')
                         setActiveCategory(text.all)
+                        setGenderFilter('all')
                         setFilterOnlyMine(false)
                         setViewMode('offers')
                       }}
@@ -938,12 +1113,23 @@ export function SwaplyApp() {
             </a>
           </div>
 
+          <div className="footer-complaint">
+            <button
+              className="footer-complaint-btn"
+              onClick={() => handleOpenReport()}
+              type="button"
+            >
+              <Flag size={12} /> Shikoyat yoki taklif qoldirish
+            </button>
+          </div>
+
           <span className="footer-right">
             &copy; 2026 Swaply <span /> <a href="#how-it-works">Hamjamiyat qoidalari</a>
           </span>
         </footer>
       </div>
 
+      {/* ---------------- MODALLAR ---------------- */}
       {modal === 'auth' && (
         <AuthModal
           authReason={authReason}
@@ -961,38 +1147,70 @@ export function SwaplyApp() {
           onClose={() => setModal(null)}
           onSave={createOffer}
           userAvatar={profile.avatar}
-          userName={profile.name || 'Foydalanuvchi'}
+          userGender={profile.gender}
+          userName={profile.name}
           userUsername={profile.username}
         />
       )}
 
-      {modal === 'profile' && isLoggedIn && (
+      {modal === 'profile' && (
         <ProfileModal
           avatar={profile.avatar}
           bio={profile.bio}
           coins={coins}
           createdAt={authUser?.createdAt}
           email={authUser?.email}
+          gender={profile.gender}
           myOffersCount={myOffersCount}
           name={profile.name}
           onClose={() => setModal(null)}
-          onSave={handleProfileSave}
+          onSave={saveProfile}
           username={profile.username}
+        />
+      )}
+
+      {modal === 'confirmUnlock' && selectedOfferForUnlock && (
+        <ConfirmUnlockModal
+          offer={selectedOfferForUnlock}
+          onCancel={() => {
+            setModal(null)
+            setSelectedOfferForUnlock(null)
+          }}
+          onConfirm={handleConfirmUnlock}
+          onTopUp={() => setModal('wallet')}
+          userCoins={coins}
+        />
+      )}
+
+      {modal === 'securityNotice' && (
+        <SecurityNoticeModal onClose={() => setModal(null)} />
+      )}
+
+      {modal === 'report' && (
+        <ReportModal
+          onClose={() => {
+            setModal(null)
+            setReportTargetOffer(null)
+            setReportTargetMember(null)
+          }}
+          onDone={(msg) => showToast(msg)}
+          targetMember={reportTargetMember || undefined}
+          targetOffer={reportTargetOffer || undefined}
+        />
+      )}
+
+      {modal === 'admin' && (
+        <AdminPanelModal
+          onClose={() => setModal(null)}
+          onOfferDeleted={fetchData}
         />
       )}
 
       {modal === 'wallet' && (
         <WalletModal
-          claimed={isLoggedIn && claimed}
           coins={coins}
-          isLoggedIn={isLoggedIn}
-          onClaim={handleClaimDailyCoin}
+          onAddCoins={handleAddCoins}
           onClose={() => setModal(null)}
-          onRegister={() => {
-            setModal('auth')
-            setAuthMode('register')
-            setAuthReason('Tangalar olish va hisob ochish uchun ro‘yxatdan o‘ting')
-          }}
         />
       )}
 
@@ -1004,19 +1222,11 @@ export function SwaplyApp() {
             setModal(null)
             setSelectedMember(null)
           }}
-          onUnlockContact={unlockContact}
+          onReport={(m) => handleOpenReport(undefined, m)}
+          onUnlockContact={handleUnlockContactClick}
           revealedContacts={revealedContacts}
         />
       )}
-
-      {toastMessage && (
-        <div aria-live="polite" className="toast-message">
-          <span className="toast-check">
-            <Check aria-hidden="true" size={14} />
-          </span>
-          {toastMessage}
-        </div>
-      )}
-    </main>
+    </div>
   )
 }

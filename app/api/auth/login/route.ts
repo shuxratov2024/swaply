@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
         email: user.email,
         avatar: user.avatar,
         bio: user.bio,
+        gender: user.gender,
+        role: user.role,
         coins: user.coins,
         phone: user.phone,
         telegram: user.telegram,

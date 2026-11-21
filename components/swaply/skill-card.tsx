@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   Check,
   Copy,
+  Flag,
   Heart,
   MapPin,
   MessageCircle,
@@ -28,6 +29,7 @@ export function SkillCard({
   onDelete,
   onToggleBookmark,
   onViewAuthorProfile,
+  onReport,
 }: {
   offer: Offer
   locale: Locale
@@ -38,6 +40,7 @@ export function SkillCard({
   onDelete?: (offerId: string) => void
   onToggleBookmark?: (offerId: string) => void
   onViewAuthorProfile?: (offer: Offer) => void
+  onReport?: (offer: Offer) => void
 }) {
   const [copied, setCopied] = useState(false)
   const text = copy[locale]
@@ -112,9 +115,11 @@ export function SkillCard({
             </div>
             <div className="user-subline">
               <span className="card-username-badge">@{displayUsername}</span>
+              {offer.gender === 'male' && <span className="gender-tag male" title="Erkak">👨 Erkak</span>}
+              {offer.gender === 'female' && <span className="gender-tag female" title="Ayol">👩 Ayol</span>}
               <i />
               <span>
-                <MapPin aria-hidden="true" size={11} /> Toshkent
+                <MapPin aria-hidden="true" size={11} /> {offer.location || 'Toshkent'}
               </span>
               {isOwner && <span className="owner-badge">Sizning e‘loningiz</span>}
             </div>
@@ -122,6 +127,21 @@ export function SkillCard({
         </div>
 
         <div className="card-header-actions">
+          {onReport && !isOwner && (
+            <button
+              aria-label="Shikoyat qilish"
+              className="card-report-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                onReport(offer)
+              }}
+              title="Shikoyat qilish"
+              type="button"
+            >
+              <Flag size={13} />
+            </button>
+          )}
+
           {onToggleBookmark && (
             <button
               aria-label={isBookmarked ? 'Sevimlilardan o‘chirish' : 'Sevimlilarga saqlash'}
