@@ -1206,6 +1206,25 @@ export function AdminPanelModal({
   } | null>(null)
   const [selectedInspectUser, setSelectedInspectUser] = useState<any | null>(null)
   const [actionMsg, setActionMsg] = useState('')
+  const [showNotifications, setShowNotifications] = useState(true)
+  const NOTIFICATIONS_KEY = 'admin_notification_toggle'
+
+  // Load toggle state from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(NOTIFICATIONS_KEY)
+      if (saved !== null) {
+        setShowNotifications(JSON.parse(saved))
+      }
+    } catch {}
+  }, [])
+
+  // Save toggle state to localStorage when it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(NOTIFICATIONS_KEY, String(showNotifications))
+    } catch {}
+  }, [showNotifications])
 
   async function loadAdminData(query = '') {
     setLoading(true)
@@ -1289,7 +1308,31 @@ export function AdminPanelModal({
         </button>
       </div>
 
-      {actionMsg && <div className="admin-action-banner">✓ {actionMsg}</div>}
+      {showNotifications && actionMsg && <div className="admin-action-banner">✓ {actionMsg}</div>}
+
+      {/* Notification toggle in users tab */}
+      {tab === 'users' && (
+        <div className="admin-notification-toggle">
+          <div className="admin-notification-toggle-label">
+            <span>Yangiliklarni ko‘rsatish:</span>
+          </div>
+          <div className="admin-notification-toggle-switch">
+            <button
+              className={`admin-notification-toggle-btn ${showNotifications ? 'active' : ''}`}
+              onClick={() => setShowNotifications((prev) => {
+                const next = !prev
+                try {
+                  localStorage.setItem(NOTIFICATIONS_KEY, String(next))
+                } catch {}
+                return next
+              })}
+              type="button"
+            >
+              <span>{showNotifications ? 'Yoq' : 'Ochiq'}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading && !adminData ? (
         <div className="admin-loading">
