@@ -36,9 +36,9 @@ import {
   ConfirmUnlockModal,
   SecurityNoticeModal,
   ReportModal,
-  AdminPanelModal,
   type AuthUser,
 } from './swaply-modals'
+import { AdminPage } from './admin-page'
 import { copy } from './translations'
 import { type Locale, type Offer, type MemberUser, type Gender, avatarOptions } from './types'
 
@@ -1200,10 +1200,7 @@ export function SwaplyApp() {
       )}
 
       {modal === 'admin' && (
-        <AdminPanelModal
-          onClose={() => setModal(null)}
-          onOfferDeleted={fetchData}
-        />
+        <AdminPage onClose={() => setModal(null)} />
       )}
 
       {modal === 'wallet' && (

@@ -201,11 +201,11 @@ export function Topbar({
 
         <div className="topbar-actions">
           {/* Admin panel trigger */}
-          {isAdmin && (
+          {isLoggedIn && isAdmin && (
             <button
               aria-label="Admin panel"
               className="admin-topbar-pill"
-              onClick={onOpenAdmin}
+              onClick={() => setModal('admin')}
               title="Admin Dashboard: Tahlil va monitoring"
               type="button"
             >
@@ -214,41 +214,42 @@ export function Topbar({
             </button>
           )}
 
-          <div
-            className="wallet-pill"
-            aria-label={`${text.wallet}: ${coins} ${text.coinLabel}`}
-            onClick={onWalletClick}
-            role="button"
-            tabIndex={0}
-            title="Hamyon va tangalar haqida ma‘lumot"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onWalletClick?.()
-              }
-            }}
-          >
-            <span className="coin-icon">
-              <Coins aria-hidden="true" size={16} />
-            </span>
-            <span className="coin-count">{coins}</span>
-            <span className="coin-label">{text.coinLabel}</span>
-            <span className="wallet-divider" />
-            <button
-              aria-label={claimed ? text.claimed : text.dailyBonus}
-              className="wallet-bonus"
-              disabled={isLoggedIn && claimed}
-              onClick={(e) => {
-                e.stopPropagation()
-                onClaim()
+          {isLoggedIn && (
+            <div
+              className="wallet-pill"
+              aria-label={`${text.wallet}: ${coins} ${text.coinLabel}`}
+              onClick={onWalletClick}
+              role="button"
+              tabIndex={0}
+              title="Hamyon va tangalar haqida ma'lumot"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onWalletClick?.()
+                }
               }}
-              title={!isLoggedIn ? 'Tangalarni olish uchun kiring' : claimed ? 'Bugun olingan' : 'Kunlik +1 tanga'}
-              type="button"
             >
-              {isLoggedIn && claimed ? <Check aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={14} />}
-              <span>{isLoggedIn && claimed ? text.claimed : text.dailyBonus}</span>
-            </button>
-          </div>
+              <span className="coin-icon">
+                <Coins aria-hidden="true" size={16} />
+              </span>
+              <span className="coin-count">{coins}</span>
+              <span className="coin-label">{text.coinLabel}</span>
+              <span className="wallet-divider" />
+              <button
+                aria-label={claimed ? text.claimed : text.dailyBonus}
+                className="wallet-bonus"
+                disabled={claimed}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClaim()
+                }}
+                title={claimed ? 'Bugun olingan' : 'Kunlik +1 tanga'}
+              >
+                {claimed ? <Check aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={14} />}
+                <span>{claimed ? text.claimed : text.dailyBonus}</span>
+              </button>
+            </div>
+          )}
 
           <button className="button button-primary nav-add" onClick={onAdd} type="button">
             <Plus aria-hidden="true" size={16} /> {text.addOffer}
@@ -274,7 +275,7 @@ export function Topbar({
               <button
                 aria-label={`Profilni ko‘rish, ${name}`}
                 className="profile-trigger"
-                onClick={onEditProfile}
+                onClick={handleProfileClick}
                 type="button"
               >
                 <img
@@ -291,7 +292,7 @@ export function Topbar({
               <button
                 aria-label="Chiqish"
                 className="signin-trigger logout-trigger"
-                onClick={onLogout}
+                onClick={handleLogoutCleanup}
                 title="Hisobdan chiqish"
                 type="button"
               >
