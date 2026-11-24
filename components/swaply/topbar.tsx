@@ -275,7 +275,7 @@ export function Topbar({
               <button
                 aria-label={`Profilni ko‘rish, ${name}`}
                 className="profile-trigger"
-                onClick={handleProfileClick}
+                onClick={onEditProfile}
                 type="button"
               >
                 <img
@@ -292,7 +292,7 @@ export function Topbar({
               <button
                 aria-label="Chiqish"
                 className="signin-trigger logout-trigger"
-                onClick={handleLogoutCleanup}
+                onClick={onLogout}
                 title="Hisobdan chiqish"
                 type="button"
               >
