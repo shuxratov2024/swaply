@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -19,6 +20,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { api } from '@/lib/api'
 import type { Locale, MemberUser } from './types'
 import { copy } from './translations'
 
@@ -80,7 +82,7 @@ export function Topbar({
     setSearching(true)
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/users?query=${encodeURIComponent(clean)}`)
+        const res = await api.searchMembers(clean)
         const data = await res.json()
         if (Array.isArray(data.users)) {
           setSearchResults(data.users)
@@ -110,7 +112,7 @@ export function Topbar({
   return (
     <header className="topbar-wrap">
       <nav aria-label="Asosiy navigatsiya" className="topbar">
-        <a aria-label="Swaply bosh sahifa" className="brand" href="#top">
+        <Link aria-label="Swaply bosh sahifa" className="brand" href="/">
           <span className="brand-icon">
             <ArrowUpRight aria-hidden="true" size={18} strokeWidth={2.5} />
           </span>
@@ -118,88 +120,9 @@ export function Topbar({
             swaply<span className="brand-dot">.</span>
           </span>
           <span className="brand-tag">{text.skillBarter}</span>
-        </a>
-
-        {/* Header Smart User Search (Name, Last Name, @username) */}
-        <div className="header-user-search-wrap" ref={dropdownRef}>
-          <div className="header-search-input-box">
-            <Search className="header-search-icon" size={14} />
-            <input
-              className="header-search-input"
-              onChange={(e) => setHeaderSearch(e.target.value)}
-              onFocus={() => {
-                if (searchResults.length > 0) setShowDropdown(true)
-              }}
-              placeholder="Foydalanuvchilarni qidirish (@amir, Ism, Familiya)..."
-              type="text"
-              value={headerSearch}
-            />
-            {headerSearch && (
-              <button
-                className="header-clear-search"
-                onClick={() => {
-                  setHeaderSearch('')
-                  setShowDropdown(false)
-                }}
-                type="button"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-
-          {/* Quick Profile Dropdown */}
-          {showDropdown && (
-            <div className="header-search-dropdown surface-card">
-              <div className="dropdown-heading">
-                <span>Topilgan foydalanuvchilar ({searchResults.length})</span>
-              </div>
-
-              {searchResults.length === 0 ? (
-                <div className="dropdown-empty">
-                  {searching ? 'Qidirilmoqda...' : 'Foydalanuvchi topilmadi'}
-                </div>
-              ) : (
-                <div className="dropdown-list">
-                  {searchResults.slice(0, 6).map((user) => (
-                    <div
-                      className="dropdown-user-item"
-                      key={user.id}
-                      onClick={() => {
-                        onSelectUser?.(user)
-                        setShowDropdown(false)
-                      }}
-                    >
-                      <img
-                        alt={user.name}
-                        className="dropdown-user-avatar"
-                        onError={(e) => {
-                          e.currentTarget.src = '/placeholder-user.jpg'
-                        }}
-                        src={user.avatar || '/placeholder-user.jpg'}
-                      />
-                      <div className="dropdown-user-meta">
-                        <div className="dropdown-user-name">
-                          <strong>{user.name}</strong>
-                          {user.gender === 'male' && <span className="mini-gender">👨</span>}
-                          {user.gender === 'female' && <span className="mini-gender">👩</span>}
-                        </div>
-                        <span className="dropdown-user-username">@{user.username}</span>
-                      </div>
-                      <div className="dropdown-user-skills">
-                        {user.skillsTeach && user.skillsTeach.length > 0 && (
-                          <span className="dropdown-teach-badge">↗ {user.skillsTeach[0]}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
+        </Link>
         <div className="topbar-actions">
+
           {/* Admin panel trigger */}
           {isAdmin && (
             <button

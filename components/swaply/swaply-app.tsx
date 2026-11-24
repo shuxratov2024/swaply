@@ -1,31 +1,31 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   AlertTriangle,
   ArrowUpRight,
-  BadgeCheck,
   Check,
   Flag,
-  Heart,
   LogIn,
   Mail,
-  MapPin,
   Search,
   Shield,
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
-  Star,
   Tag,
   UnlockKeyhole,
   User,
   UserPlus,
-  Users,
   Zap,
 } from 'lucide-react'
+import { api, fetchWithAuth } from '@/lib/api'
 import { Hero } from './hero'
-import { SkillCard } from './skill-card'
+import { MemberGrid } from './member-grid'
+import { OfferGrid } from './offer-grid'
+import { SwaplyRouteTabs } from './route-tabs'
 import { Topbar } from './topbar'
 import {
   AuthModal,
@@ -152,6 +152,12 @@ const initialOffers: Offer[] = [
 ]
 
 export function SwaplyApp() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const viewMode = pathname === '/members' ? 'members' : pathname === '/favorites' ? 'favorites' : 'offers'
+  const offerDetailId = /^\/offers\/[^/]+$/.test(pathname) && pathname !== '/offers/new'
+    ? pathname.slice('/offers/'.length)
+    : null
   const [locale, setLocale] = useState<Locale>('UZ')
   const [offers, setOffers] = useState<Offer[]>(initialOffers)
   const [members, setMembers] = useState<MemberUser[]>([])
@@ -162,7 +168,6 @@ export function SwaplyApp() {
   const [activeCategory, setActiveCategory] = useState(copy.UZ.all)
   const [filterOnlyMine, setFilterOnlyMine] = useState(false)
   const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all')
-  const [viewMode, setViewMode] = useState<'offers' | 'members' | 'favorites'>('offers')
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<
     | 'auth'
@@ -201,6 +206,7 @@ export function SwaplyApp() {
   })
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
 
   const text = copy[locale]
   const categories = [text.all, ...text.categories]
@@ -208,8 +214,8 @@ export function SwaplyApp() {
   async function fetchData() {
     try {
       const [offersRes, usersRes] = await Promise.all([
-        fetch('/api/offers'),
-        fetch('/api/users'),
+        api.getOffers(),
+        api.getMembers(),
       ])
 
       if (offersRes.ok) {
@@ -251,6 +257,7 @@ export function SwaplyApp() {
         setAuthUser(user)
         setIsLoggedIn(true)
         setCoins(user.coins ?? 0)
+        setAuthReady(true)
 
         const today = new Date().toISOString().split('T')[0]
         if (user.lastClaimDate === today) {
@@ -265,9 +272,7 @@ export function SwaplyApp() {
           gender: user.gender || 'male',
         })
 
-        fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${savedToken}` },
-        })
+        api.getCurrentUser()
           .then((res) => (res.ok ? res.json() : null))
           .then((data) => {
             if (data?.user) {
@@ -296,10 +301,76 @@ export function SwaplyApp() {
       setCoins(0)
       setIsLoggedIn(false)
       setAuthUser(null)
+      setAuthReady(true)
     }
   }, [])
 
+  useEffect(() => {
+    const isProtectedRoute = ['/favorites', '/offers/new', '/profile', '/wallet', '/admin'].includes(pathname)
+    if (isProtectedRoute) {
+      if (!authReady) return
+      if (!isLoggedIn) {
+        const next = `${pathname}${window.location.search}`
+        router.replace(`/login?next=${encodeURIComponent(next)}`)
+        return
+      }
+    }
+
+    if (pathname === '/login' || pathname === '/register') {
+      setAuthMode(pathname === '/register' ? 'register' : 'login')
+      setAuthReason('')
+      setModal('auth')
+      return
+    }
+
+    if (pathname === '/offers/new') {
+      setModal('offer')
+      return
+    }
+
+    if (pathname === '/profile') {
+      setModal('profile')
+      return
+    }
+
+    if (pathname === '/wallet') {
+      if (!authReady) return
+      setModal('wallet')
+      return
+    }
+
+    if (pathname === '/admin') {
+      if (!authReady) return
+      if (authUser?.role === 'admin' || authUser?.username === 'amir') {
+        setModal('admin')
+      } else {
+        router.replace('/offers')
+      }
+      return
+    }
+
+    if (/^\/profile\/[^/]+$/.test(pathname)) return
+    setModal(null)
+  }, [pathname, authReady, authUser, router])
+
+  useEffect(() => {
+    const match = pathname.match(/^\/profile\/([^/]+)$/)
+    if (!match) return
+
+    const username = match[1].toLocaleLowerCase()
+    const member = members.find((candidate) => candidate.username.toLocaleLowerCase() === username)
+      ?? (selectedMember?.username.toLocaleLowerCase() === username ? selectedMember : null)
+
+    if (member) {
+      setSelectedMember(member)
+      setModal('publicProfile')
+    } else if (members.length > 0) {
+      setModal(null)
+    }
+  }, [pathname, members, selectedMember])
+
   function handleLogoutCleanup() {
+    void api.logout().catch(() => {})
     localStorage.removeItem('swaply_token')
     localStorage.removeItem('swaply_user')
     setAuthUser(null)
@@ -308,6 +379,12 @@ export function SwaplyApp() {
     setClaimed(false)
     setProfile({ name: '', username: '', bio: '', avatar: '', gender: 'male' })
     setFilterOnlyMine(false)
+    setAuthReady(true)
+  }
+
+  function handleLogout() {
+    handleLogoutCleanup()
+    router.replace('/offers')
   }
 
   useEffect(() => {
@@ -328,9 +405,7 @@ export function SwaplyApp() {
 
   function toggleBookmark(offerId: string) {
     if (!isLoggedIn) {
-      setAuthMode('login')
-      setAuthReason('Takliflarni sevimlilarga saqlash uchun profilingizga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Sevimlilarga qo‘shish uchun tizimga kiring')
       return
     }
@@ -351,6 +426,10 @@ export function SwaplyApp() {
     const normalizedQuery = search.trim().toLocaleLowerCase()
 
     let list = offers
+
+    if (offerDetailId) {
+      list = list.filter((offer) => offer.id === offerDetailId)
+    }
 
     if (viewMode === 'favorites') {
       list = list.filter((o) => favorites.includes(o.id))
@@ -375,7 +454,7 @@ export function SwaplyApp() {
         `${offer.name} @${offer.username || ''} ${offer.canTeach} ${offer.wantsToLearn} ${offer.category} ${offer.description} ${offer.location || ''}`.toLocaleLowerCase()
       return matchesCategory && (!normalizedQuery || searchable.includes(normalizedQuery))
     })
-  }, [activeCategory, categories, offers, search, filterOnlyMine, genderFilter, authUser, viewMode, favorites])
+  }, [activeCategory, categories, offers, search, filterOnlyMine, genderFilter, authUser, viewMode, favorites, offerDetailId])
 
   const visibleMembers = useMemo(() => {
     const q = search.trim().toLowerCase().replace(/^@/, '')
@@ -406,20 +485,16 @@ export function SwaplyApp() {
 
   function handleAddOfferClick() {
     if (!isLoggedIn) {
-      setAuthMode('register')
-      setAuthReason('Taklif qo‘shishingiz uchun avval ro‘yxatdan o‘ting yoki hisobingizga kiring!')
-      setModal('auth')
+      router.push('/register?next=%2Foffers%2Fnew')
       showToast('Taklif qo‘shish uchun avval tizimga kiring')
       return
     }
-    setModal('offer')
+    router.push('/offers/new')
   }
 
   async function handleClaimDailyCoin() {
     if (!isLoggedIn) {
-      setAuthMode('register')
-      setAuthReason('Kunlik bepul tangani olish uchun avval hisobingizga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Tangalarni olish uchun avval ro‘yxatdan o‘ting yoki tizimga kiring')
       return
     }
@@ -433,7 +508,7 @@ export function SwaplyApp() {
     if (!token) return
 
     try {
-      const res = await fetch('/api/coins/claim', {
+      const res = await fetchWithAuth('/api/coins/claim', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -461,24 +536,20 @@ export function SwaplyApp() {
 
   function handleProfileClick() {
     if (!isLoggedIn) {
-      setAuthMode('login')
-      setAuthReason('Shaxsiy profilingizni boshqarish uchun avval tizimga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Profil bo‘limi uchun avval tizimga kiring')
       return
     }
-    setModal('profile')
+    router.push('/profile')
   }
 
   function handleWalletClick() {
     if (!isLoggedIn) {
-      setAuthMode('login')
-      setAuthReason('Tanga balansi va hamyonni to‘ldirish uchun tizimga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Hamyon bo‘limi uchun avval tizimga kiring')
       return
     }
-    setModal('wallet')
+    router.push('/wallet')
   }
 
   function openPublicProfile(memberOrOffer: MemberUser | Offer) {
@@ -510,14 +581,16 @@ export function SwaplyApp() {
       }
     }
     setModal('publicProfile')
+    const username = 'skillsTeach' in memberOrOffer
+      ? memberOrOffer.username
+      : memberOrOffer.username || memberOrOffer.name.toLowerCase().replace(/\s+/g, '_')
+    router.push(`/profile/${encodeURIComponent(username)}`)
   }
 
   // Kontakt ochish tugmasi bosilganda:
   function handleUnlockContactClick(offer: Offer) {
     if (!isLoggedIn) {
-      setAuthMode('login')
-      setAuthReason('Kontakt ma’lumotlarini ochish va bog‘lanish uchun avval tizimga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Kontaktni ochish uchun avval tizimga kiring')
       return
     }
@@ -544,12 +617,12 @@ export function SwaplyApp() {
 
     const token = localStorage.getItem('swaply_token')
     if (!token) {
-      setModal('auth')
+      router.push('/login')
       return
     }
 
     try {
-      const res = await fetch('/api/coins/spend', {
+      const res = await fetchWithAuth('/api/coins/spend', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -583,9 +656,7 @@ export function SwaplyApp() {
   // Shikoyat modalini ochish
   function handleOpenReport(offer?: Offer, member?: MemberUser) {
     if (!isLoggedIn) {
-      setAuthMode('login')
-      setAuthReason('Shikoyat qoldirish uchun avval tizimga kiring!')
-      setModal('auth')
+      router.push('/login')
       showToast('Shikoyat qoldirish uchun tizimga kiring')
       return
     }
@@ -609,13 +680,12 @@ export function SwaplyApp() {
     const token = localStorage.getItem('swaply_token')
     if (!token) {
       showToast('Taklif qo‘shish uchun tizimga kirishingiz shart')
-      setAuthMode('login')
-      setModal('auth')
+      router.push('/login?next=%2Foffers%2Fnew')
       return
     }
 
     try {
-      const res = await fetch('/api/offers', {
+      const res = await fetchWithAuth('/api/offers', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -628,7 +698,7 @@ export function SwaplyApp() {
 
       if (res.ok && data.offer) {
         setOffers((current) => [data.offer, ...current])
-        setModal(null)
+        router.replace('/offers')
         showToast('Yangi taklifingiz muvaffaqiyatli e‘lon qilindi!')
         fetchData()
       } else {
@@ -644,7 +714,7 @@ export function SwaplyApp() {
     if (!token) return
 
     try {
-      const res = await fetch(`/api/offers?id=${offerId}`, {
+      const res = await fetchWithAuth(`/api/offers?id=${offerId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -674,7 +744,7 @@ export function SwaplyApp() {
     if (!token) return
 
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await fetchWithAuth('/api/auth/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -695,7 +765,7 @@ export function SwaplyApp() {
         })
         setAuthUser(data.user)
         localStorage.setItem('swaply_user', JSON.stringify(data.user))
-        setModal(null)
+        router.replace('/offers')
         showToast('Profilingiz muvaffaqiyatli saqlandi!')
         fetchData()
       } else {
@@ -713,7 +783,7 @@ export function SwaplyApp() {
 
     const token = localStorage.getItem('swaply_token')
     if (token) {
-      fetch('/api/auth/profile', {
+      fetchWithAuth('/api/auth/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -734,6 +804,8 @@ export function SwaplyApp() {
   }
 
   function handleAuthDone(user: AuthUser, token: string) {
+    localStorage.setItem('swaply_token', token)
+    localStorage.setItem('swaply_user', JSON.stringify(user))
     setAuthUser(user)
     setIsLoggedIn(true)
     setCoins(user.coins ?? 5)
@@ -751,26 +823,28 @@ export function SwaplyApp() {
       gender: user.gender || 'male',
     })
 
-    setModal(null)
+    setAuthReady(true)
     setAuthReason('')
     showToast(`Xush kelibsiz, ${user.name}!`)
     fetchData()
+
+    const next = new URLSearchParams(window.location.search).get('next')
+    const destination = next?.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')
+      ? next
+      : '/offers'
+    router.replace(destination)
   }
 
   function openSignInModal() {
-    setAuthMode('login')
-    setAuthReason('')
-    setModal('auth')
+    router.push('/login')
   }
 
   function openRegisterModal() {
-    setAuthMode('register')
-    setAuthReason('')
-    setModal('auth')
+    router.push('/register')
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" id="top">
       <div aria-atomic="true" aria-live="polite" className="sr-only">
         {toastMessage}
       </div>
@@ -798,8 +872,8 @@ export function SwaplyApp() {
           onClaim={handleClaimDailyCoin}
           onEditProfile={handleProfileClick}
           onLocaleChange={setLocale}
-          onLogout={handleLogoutCleanup}
-          onOpenAdmin={() => setModal('admin')}
+          onLogout={handleLogout}
+          onOpenAdmin={() => router.push('/admin')}
           onRegister={openRegisterModal}
           onSelectUser={openPublicProfile}
           onSignIn={openSignInModal}
@@ -843,37 +917,13 @@ export function SwaplyApp() {
 
         {/* Asosiy navigatsiya rejimi: Takliflar vs A'zolar qidiruvi vs Sevimlilar */}
         <section aria-labelledby="main-view-heading" className="offers-section" id="offers">
-          <div className="platform-nav-tabs">
-            <button
-              className={`platform-tab-btn ${viewMode === 'offers' ? 'tab-btn-active' : ''}`}
-              onClick={() => {
-                setViewMode('offers')
-                setFilterOnlyMine(false)
-              }}
-              type="button"
-            >
-              <Tag size={14} />
-              <span>Barcha takliflar ({offers.length})</span>
-            </button>
-
-            <button
-              className={`platform-tab-btn ${viewMode === 'members' ? 'tab-btn-active' : ''}`}
-              onClick={() => setViewMode('members')}
-              type="button"
-            >
-              <Users size={14} />
-              <span>A‘zolarni qidirish ({members.length})</span>
-            </button>
-
-            <button
-              className={`platform-tab-btn ${viewMode === 'favorites' ? 'tab-btn-active' : ''}`}
-              onClick={() => setViewMode('favorites')}
-              type="button"
-            >
-              <Heart fill={favorites.length > 0 ? '#ef4444' : 'none'} size={14} />
-              <span>Sevimlilar ({favorites.length})</span>
-            </button>
-          </div>
+          <SwaplyRouteTabs
+            active={viewMode}
+            favoritesCount={favorites.length}
+            membersCount={members.length}
+            offersCount={offers.length}
+            onOffersNavigate={() => setFilterOnlyMine(false)}
+          />
 
           {/* Jins bo'yicha tezkor filtr (Gender filter) */}
           <div className="gender-filter-bar">
@@ -907,14 +957,18 @@ export function SwaplyApp() {
             <div>
               <div className="section-kicker">
                 <span />{' '}
-                {viewMode === 'members'
-                  ? 'HAMJAMIYAT A‘ZOLARI'
+                {offerDetailId
+                  ? 'Taklif tafsilotlari'
+                  : viewMode === 'members'
+                  ? 'Foydalanuvchilar qidiruv platformasi'
                   : viewMode === 'favorites'
                   ? 'SAQLANGAN TAKLIFLAR'
                   : 'SWAPLY HAMJAMIYATI'}
               </div>
               <h2 id="offers-heading">
-                {viewMode === 'members'
+                {offerDetailId
+                  ? 'Taklif tafsilotlari'
+                  : viewMode === 'members'
                   ? 'Foydalanuvchilar qidiruv platformasi'
                   : viewMode === 'favorites'
                   ? 'Saqlangan takliflaringiz'
@@ -925,6 +979,11 @@ export function SwaplyApp() {
               </h2>
             </div>
             <div className="listing-tools">
+              {offerDetailId && (
+                <Link className="button button-contact" href="/offers">
+                  Barcha takliflar <ArrowUpRight aria-hidden="true" size={12} />
+                </Link>
+              )}
               {isLoggedIn && viewMode === 'offers' && (
                 <button
                   aria-pressed={filterOnlyMine}
@@ -954,82 +1013,11 @@ export function SwaplyApp() {
           {/* Foydalanuvchilar qidiruv bo'limi (Members Grid) */}
           {viewMode === 'members' ? (
             <>
-              <div className="members-grid">
-                {visibleMembers.map((member) => (
-                  <article className="member-card surface-card" key={member.id || member.username}>
-                    <div className="member-card-header">
-                      <img
-                        alt={`${member.name} rasmi`}
-                        className="member-card-avatar"
-                        onError={(e) => {
-                          e.currentTarget.src = '/placeholder-user.jpg'
-                        }}
-                        src={member.avatar || '/placeholder-user.jpg'}
-                      />
-                      <div className="member-card-meta">
-                        <div className="member-name-row">
-                          <h4>{member.name}</h4>
-                          {member.verified && <BadgeCheck className="verified-icon" size={14} />}
-                          {member.gender && (
-                            <span className="mini-gender-icon" title={member.gender === 'male' ? 'Erkak' : 'Ayol'}>
-                              {member.gender === 'male' ? '👨' : '👩'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="member-username-row">@{member.username}</div>
-                        <div className="member-loc-row">
-                          <MapPin size={11} /> {member.location || 'Toshkent'}
-                        </div>
-                      </div>
-                      <div className="member-card-actions-top">
-                        <button
-                          className="member-report-btn"
-                          onClick={() => handleOpenReport(undefined, member)}
-                          title="Foydalanuvchi ustidan shikoyat qilish"
-                          type="button"
-                        >
-                          <Flag size={12} />
-                        </button>
-                        <span className="rating">
-                          <Star fill="currentColor" size={11} /> 5.0
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="member-card-bio">
-                      {member.bio || 'Hozircha foydalanuvchi o‘zi haqida izoh qoldirmagan.'}
-                    </p>
-
-                    <div className="member-skills-section">
-                      {member.skillsTeach && member.skillsTeach.length > 0 && (
-                        <div className="member-skill-row">
-                          <span className="member-skill-label teach">↗ O‘rgatadi:</span>
-                          <span className="member-skill-text">{member.skillsTeach[0]}</span>
-                        </div>
-                      )}
-                      {member.skillsLearn && member.skillsLearn.length > 0 && (
-                        <div className="member-skill-row">
-                          <span className="member-skill-label learn">↘ O‘rganadi:</span>
-                          <span className="member-skill-text">{member.skillsLearn[0]}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="member-card-footer">
-                      <span className="member-offers-count">
-                        <Tag size={11} /> {member.offersCount || 0} ta taklif
-                      </span>
-                      <button
-                        className="button button-contact"
-                        onClick={() => openPublicProfile(member)}
-                        type="button"
-                      >
-                        Profilni ko‘rish <ArrowUpRight size={12} />
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
+              <MemberGrid
+                members={visibleMembers}
+                onOpenProfile={openPublicProfile}
+                onReport={(member) => handleOpenReport(undefined, member)}
+              />
 
               {visibleMembers.length === 0 && (
                 <div className="empty-state">
@@ -1044,23 +1032,19 @@ export function SwaplyApp() {
           ) : (
             /* Takliflar (Offers) bo'limi */
             <>
-              <div className="offers-grid">
-                {visibleOffers.map((offer) => (
-                  <SkillCard
-                    isBookmarked={favorites.includes(offer.id)}
-                    isOwner={Boolean(authUser && offer.userId === authUser.id)}
-                    key={offer.id}
-                    locale={locale}
-                    offer={offer}
-                    onDelete={handleDeleteOffer}
-                    onReport={(o) => handleOpenReport(o, undefined)}
-                    onToggleBookmark={toggleBookmark}
-                    onUnlock={handleUnlockContactClick}
-                    onViewAuthorProfile={openPublicProfile}
-                    revealed={revealedContacts.includes(offer.id)}
-                  />
-                ))}
-              </div>
+              <OfferGrid
+                authUserId={authUser?.id}
+                favorites={favorites}
+                locale={locale}
+                offers={visibleOffers}
+                onDelete={handleDeleteOffer}
+                onReport={(offer) => handleOpenReport(offer, undefined)}
+                onToggleBookmark={toggleBookmark}
+                onUnlock={handleUnlockContactClick}
+                onViewAuthorProfile={openPublicProfile}
+                revealedContacts={revealedContacts}
+                showDetailLink={!offerDetailId}
+              />
 
               {visibleOffers.length === 0 && (
                 <div className="empty-state">
@@ -1083,7 +1067,7 @@ export function SwaplyApp() {
                         setActiveCategory(text.all)
                         setGenderFilter('all')
                         setFilterOnlyMine(false)
-                        setViewMode('offers')
+                        router.push('/offers')
                       }}
                       type="button"
                     >
@@ -1097,12 +1081,12 @@ export function SwaplyApp() {
         </section>
 
         <footer className="site-footer">
-          <a aria-label="Swaply bosh sahifaga" className="footer-brand" href="#top">
+          <Link aria-label="Swaply bosh sahifaga" className="footer-brand" href="/">
             <span className="brand-icon">
               <ArrowUpRight aria-hidden="true" size={16} />
             </span>{' '}
             swaply<span className="brand-dot">.</span>
-          </a>
+          </Link>
           <span>Vaqtingiz — eng qimmat valyuta.</span>
 
           <div className="footer-contact">
@@ -1135,16 +1119,17 @@ export function SwaplyApp() {
           authReason={authReason}
           initialMode={authMode}
           onClose={() => {
-            setModal(null)
             setAuthReason('')
+            router.replace('/offers')
           }}
           onDone={handleAuthDone}
+          onModeChange={(mode) => router.replace(mode === 'register' ? '/register' : '/login')}
         />
       )}
 
       {modal === 'offer' && (
         <OfferModal
-          onClose={() => setModal(null)}
+          onClose={() => router.replace('/offers')}
           onSave={createOffer}
           userAvatar={profile.avatar}
           userGender={profile.gender}
@@ -1163,7 +1148,7 @@ export function SwaplyApp() {
           gender={profile.gender}
           myOffersCount={myOffersCount}
           name={profile.name}
-          onClose={() => setModal(null)}
+          onClose={() => router.replace('/offers')}
           onSave={saveProfile}
           username={profile.username}
         />
@@ -1177,7 +1162,7 @@ export function SwaplyApp() {
             setSelectedOfferForUnlock(null)
           }}
           onConfirm={handleConfirmUnlock}
-          onTopUp={() => setModal('wallet')}
+          onTopUp={() => router.push('/wallet')}
           userCoins={coins}
         />
       )}
@@ -1201,7 +1186,7 @@ export function SwaplyApp() {
 
       {modal === 'admin' && (
         <AdminPanelModal
-          onClose={() => setModal(null)}
+          onClose={() => router.replace('/offers')}
           onOfferDeleted={fetchData}
         />
       )}
@@ -1210,7 +1195,7 @@ export function SwaplyApp() {
         <WalletModal
           coins={coins}
           onAddCoins={handleAddCoins}
-          onClose={() => setModal(null)}
+          onClose={() => router.replace('/offers')}
         />
       )}
 
@@ -1219,8 +1204,8 @@ export function SwaplyApp() {
           member={selectedMember}
           offers={offers}
           onClose={() => {
-            setModal(null)
             setSelectedMember(null)
+            router.back()
           }}
           onReport={(m) => handleOpenReport(undefined, m)}
           onUnlockContact={handleUnlockContactClick}

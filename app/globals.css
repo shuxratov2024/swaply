@@ -237,7 +237,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .skill-divider span::after { content: '↔'; position: absolute; inset: 0; display: grid; place-items: center; color: rgb(232 220 196 / 68%); font-size: 9px; }
 .offer-description { display: -webkit-box; min-height: 37px; overflow: hidden; margin: 11px 0 12px; color: rgb(232 220 196 / 68%); font-size: 11px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .offer-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid rgb(232 220 196 / 11%); }
-.offer-category { overflow: hidden; color: rgb(232 220 196 / 54%); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .offer-category { overflow: hidden; color: rgb(232 220 196 / 54%); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .offer-detail-link { display: inline-flex; align-items: center; gap: 3px; color: var(--cream); font-size: 9px; font-weight: 650; text-decoration: none; white-space: nowrap; }
+  .offer-detail-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+  .tab-count { color: rgb(232 220 196 / 72%); font-variant-numeric: tabular-nums; }
+
 .button-contact { min-height: 30px; gap: 5px; border-radius: 8px; padding: 0 9px; color: var(--cream); background: var(--violet); font-size: 10px; }
 .button-contact:hover { background: var(--violet-hover); }
 .contact-price { margin-left: 1px; border-left: 1px solid rgb(232 220 196 / 30%); padding-left: 5px; font-size: 9px; }

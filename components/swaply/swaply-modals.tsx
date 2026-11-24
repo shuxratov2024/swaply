@@ -43,6 +43,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import { fetchWithAuth } from '@/lib/api'
 import { ModalFrame } from './modal-frame'
 import { type Offer, type MemberUser, type ReportItem, avatarOptions, type Gender } from './types'
 
@@ -69,13 +70,20 @@ export function AuthModal({
   onDone,
   initialMode = 'login',
   authReason,
+  onModeChange,
 }: {
   onClose: () => void
   onDone: (user: AuthUser, token: string) => void
   initialMode?: 'login' | 'register'
   authReason?: string
+  onModeChange?: (mode: 'login' | 'register') => void
 }) {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode)
+
+  useEffect(() => {
+    setMode(initialMode)
+    setError('')
+  }, [initialMode])
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [gender, setGender] = useState<'male' | 'female'>('male')
@@ -118,7 +126,7 @@ export function AuthModal({
     setUsernameStatus({ checking: true })
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/users/check-username?username=${encodeURIComponent(clean)}`)
+        const res = await fetchWithAuth(`/api/users/check-username?username=${encodeURIComponent(clean)}`)
         const data = await res.json()
         if (data.available) {
           setUsernameStatus({ checking: false, available: true })
@@ -180,7 +188,7 @@ export function AuthModal({
             }
           : { email: email.trim(), password }
 
-      const response = await fetch(endpoint, {
+      const response = await fetchWithAuth(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -224,6 +232,7 @@ export function AuthModal({
           className={`auth-segment-btn ${mode === 'login' ? 'active' : ''}`}
           onClick={() => {
             setMode('login')
+            onModeChange?.('login')
             setError('')
           }}
           type="button"
@@ -235,6 +244,7 @@ export function AuthModal({
           className={`auth-segment-btn ${mode === 'register' ? 'active' : ''}`}
           onClick={() => {
             setMode('register')
+            onModeChange?.('register')
             setError('')
           }}
           type="button"
@@ -1097,7 +1107,7 @@ export function ReportModal({
 
     try {
       const token = localStorage.getItem('swaply_token')
-      const res = await fetch('/api/reports', {
+      const res = await fetchWithAuth('/api/reports', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1229,7 +1239,7 @@ export function AdminPanelModal({
   async function loadAdminData(query = '') {
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin?query=${encodeURIComponent(query)}`)
+      const res = await fetchWithAuth(`/api/admin?query=${encodeURIComponent(query)}`)
       const data = await res.json()
       setAdminData(data)
       if (query && data.users?.length > 0) {
@@ -1250,7 +1260,7 @@ export function AdminPanelModal({
     if (!window.confirm('Haqiqatan ham bu taklifni o‘chirmoqchimisiz?')) return
 
     try {
-      const res = await fetch('/api/admin', {
+      const res = await fetchWithAuth('/api/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'deleteOffer', offerId }),
@@ -1265,7 +1275,7 @@ export function AdminPanelModal({
 
   async function handleResolveReport(reportId: string) {
     try {
-      const res = await fetch('/api/admin', {
+      const res = await fetchWithAuth('/api/admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'updateReport', reportId, status: 'resolved' }),

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -30,6 +31,7 @@ export function SkillCard({
   onToggleBookmark,
   onViewAuthorProfile,
   onReport,
+  showDetailLink = true,
 }: {
   offer: Offer
   locale: Locale
@@ -41,6 +43,7 @@ export function SkillCard({
   onToggleBookmark?: (offerId: string) => void
   onViewAuthorProfile?: (offer: Offer) => void
   onReport?: (offer: Offer) => void
+  showDetailLink?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const text = copy[locale]
@@ -204,6 +207,11 @@ export function SkillCard({
 
       <div className="offer-card-footer">
         <span className="offer-category">{offer.category}</span>
+        {showDetailLink && (
+          <Link className="offer-detail-link" href={`/offers/${encodeURIComponent(String(offer.id))}`}>
+            Tafsilotlar <ArrowUpRight aria-hidden="true" size={12} />
+          </Link>
+        )}
 
         {isUnlocked ? (
           <div className="revealed-contacts-wrapper">

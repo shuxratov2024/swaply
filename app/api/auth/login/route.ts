@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { findUserByEmailOrUsername } from '@/lib/db'
 import { signToken } from '@/lib/auth'
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from '@/lib/session'
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
       name: user.name,
     })
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: 'Muvaffaqiyatli kirdingiz!',
       token,
       user: {
@@ -62,6 +63,8 @@ export async function POST(request: NextRequest) {
         createdAt: user.createdAt,
       },
     })
+    response.cookies.set(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS)
+    return response
   } catch (error) {
     console.error('Login error:', error)
     return NextResponse.json(

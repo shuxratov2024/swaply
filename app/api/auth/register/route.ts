@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { findUserByEmail, isUsernameAvailable, createUser } from '@/lib/db'
 import { signToken } from '@/lib/auth'
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from '@/lib/session'
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
       name: newUser.name,
     })
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         message: 'Ro‘yxatdan muvaffaqiyatli o‘tdingiz!',
         token,
@@ -109,6 +110,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     )
+    response.cookies.set(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS)
+    return response
   } catch (error) {
     console.error('Register error:', error)
     return NextResponse.json(
