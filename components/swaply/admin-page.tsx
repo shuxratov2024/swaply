@@ -109,9 +109,14 @@ export function AdminPage({
   }
 
   async function loadAdminData(query = '') {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('swaply_token') : null
+    if (!token) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin?query=${encodeURIComponent(query)}`)
+      const res = await fetch(`/api/admin?query=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
       const data = await res.json()
       setAdminData(data)
       if (query && data.users?.length > 0) {
@@ -126,15 +131,20 @@ export function AdminPage({
 
   useEffect(() => {
     loadAdminData(searchUser)
-  }, [searchUser])
+  }, [searchUser, isAuthenticated])
 
   async function handleDeleteOffer(offerId: string) {
     if (!window.confirm("Haqiqatan ham bu taklifni o'chirmoqchimisiz?")) return
+    const token = localStorage.getItem('swaply_token')
+    if (!token) return
 
     try {
       const res = await fetch('/api/admin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ action: 'deleteOffer', offerId }),
       })
       if (res.ok) {
@@ -145,10 +155,15 @@ export function AdminPage({
   }
 
   async function handleResolveReport(reportId: string) {
+    const token = localStorage.getItem('swaply_token')
+    if (!token) return
     try {
       const res = await fetch('/api/admin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ action: 'updateReport', reportId, status: 'resolved' }),
       })
       if (res.ok) {

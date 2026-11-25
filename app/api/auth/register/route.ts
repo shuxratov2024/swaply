@@ -2,28 +2,35 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { findUserByEmail, isUsernameAvailable, createUser } from '@/lib/db'
 import { signToken } from '@/lib/auth'
+import { parseJsonBody, sanitizeUser } from '@/lib/api-helpers'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { name, username, email, password, gender } = body
+    const parsed = await parseJsonBody<{
+      name?: unknown
+      username?: unknown
+      email?: unknown
+      password?: unknown
+      gender?: unknown
+    }>(request)
+    if (parsed.error) return parsed.error
 
-    // Validatsiya
-    if (!name || typeof name !== 'string' || !name.trim()) {
+    const { name, username, email, password, gender } = parsed.data
+
+    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 60) {
       return NextResponse.json(
-        { error: 'Ismingizni kiriting' },
+        { error: 'Ism 2 dan 60 tagacha belgidan iborat bo‘lishi kerak' },
         { status: 400 }
       )
     }
 
-    if (!username || typeof username !== 'string' || !username.trim()) {
+    if (typeof username !== 'string' || !username.trim()) {
       return NextResponse.json(
         { error: 'Username kiriting (masalan, @azizbek)' },
         { status: 400 }
       )
     }
 
-    // Username bandligini tekshirish
     const usernameCheck = isUsernameAvailable(username)
     if (!usernameCheck.available) {
       return NextResponse.json(
@@ -32,23 +39,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!email || typeof email !== 'string' || !email.trim()) {
+    if (typeof email !== 'string' || !email.trim() || email.trim().length > 120) {
       return NextResponse.json(
         { error: 'Email manzil majburiy' },
         { status: 400 }
       )
     }
 
-    if (!password || typeof password !== 'string') {
+    if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
       return NextResponse.json(
-        { error: 'Parol majburiy' },
-        { status: 400 }
-      )
-    }
-
-    if (password.length < 6) {
-      return NextResponse.json(
-        { error: 'Parol kamida 6 ta belgidan iborat bo‘lishi kerak' },
+        { error: 'Parol 6 dan 128 tagacha belgidan iborat bo‘lishi kerak' },
         { status: 400 }
       )
     }
@@ -61,7 +61,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Email allaqachon mavjudligini tekshirish
     const existing = findUserByEmail(email)
     if (existing) {
       return NextResponse.json(
@@ -70,10 +69,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parolni hash qilish
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Foydalanuvchini yaratish
     const newUser = createUser({
       name: name.trim(),
       username: username.trim(),
@@ -82,7 +79,6 @@ export async function POST(request: NextRequest) {
       gender: gender === 'male' || gender === 'female' ? gender : 'other',
     })
 
-    // JWT token yaratish
     const token = signToken({
       userId: newUser.id,
       email: newUser.email,
@@ -93,19 +89,7 @@ export async function POST(request: NextRequest) {
       {
         message: 'Ro‘yxatdan muvaffaqiyatli o‘tdingiz!',
         token,
-        user: {
-          id: newUser.id,
-          name: newUser.name,
-          username: newUser.username,
-          email: newUser.email,
-          avatar: newUser.avatar,
-          bio: newUser.bio,
-          gender: newUser.gender,
-          role: newUser.role,
-          coins: newUser.coins,
-          lastClaimDate: newUser.lastClaimDate,
-          createdAt: newUser.createdAt,
-        },
+        user: sanitizeUser(newUser),
       },
       { status: 201 }
     )

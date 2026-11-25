@@ -1,33 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken } from '@/lib/auth'
-import { claimDailyReward, findUserById } from '@/lib/db'
+import { claimDailyReward } from '@/lib/db'
+import { authenticateRequest } from '@/lib/api-helpers'
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Tangalarni olish uchun ro\'yxatdan o\'ting yoki tizimga kiring' },
-        { status: 401 }
-      )
-    }
+    const auth = authenticateRequest(
+      request,
+      "Tangalarni olish uchun ro'yxatdan o'ting yoki tizimga kiring"
+    )
+    if (auth.error) return auth.error
 
-    const token = authHeader.slice(7)
-    const payload = verifyToken(token)
-
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'Sessiya muddati tugagan. Qaytadan tizimga kiring' },
-        { status: 401 }
-      )
-    }
-
-    const user = findUserById(payload.userId)
-    if (!user) {
-      return NextResponse.json({ error: 'Foydalanuvchi topilmadi' }, { status: 404 })
-    }
-
-    const result = claimDailyReward(user.id)
+    const result = claimDailyReward(auth.user.id)
 
     if (!result.success) {
       return NextResponse.json(

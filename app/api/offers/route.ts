@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllOffers, createOffer, deleteOffer, findUserById } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
+import { getAllOffers, createOffer, deleteOffer } from '@/lib/db'
+import { authenticateRequest, isAdminUser, parseJsonBody } from '@/lib/api-helpers'
+
+const VALID_LANGUAGES = new Set(['UZ', 'RU', 'EN'])
+const VALID_GENDERS = new Set(['male', 'female', 'other'])
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,10 +27,6 @@ export async function GET(request: NextRequest) {
       offers = offers.filter((o) => o.category === category)
     }
 
-    if (gender && gender !== 'all') {
-      offers = offers.filter((o) => o.gender === gender)
-    }
-
     if (search) {
       offers = offers.filter((o) => {
         const text = `${o.name} ${o.username || ''} ${o.canTeach} ${o.wantsToLearn} ${o.category} ${o.description} ${o.location || ''}`.toLowerCase()
@@ -44,33 +43,26 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Taklif qo‘shishingiz uchun ro‘yxatdan o‘ting yoki o‘z hisobingizga kiring' },
-        { status: 401 }
-      )
-    }
+    const auth = authenticateRequest(
+      request,
+      'Taklif qo‘shishingiz uchun ro‘yxatdan o‘ting yoki o‘z hisobingizga kiring'
+    )
+    if (auth.error) return auth.error
 
-    const token = authHeader.slice(7)
-    const payload = verifyToken(token)
+    const parsed = await parseJsonBody<{
+      canTeach?: unknown
+      wantsToLearn?: unknown
+      category?: unknown
+      description?: unknown
+      location?: unknown
+      gender?: unknown
+      phone?: unknown
+      telegram?: unknown
+      whatsapp?: unknown
+      language?: unknown
+    }>(request)
+    if (parsed.error) return parsed.error
 
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'Sessiya muddati tugagan. Qaytadan tizimga kiring' },
-        { status: 401 }
-      )
-    }
-
-    const user = findUserById(payload.userId)
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Foydalanuvchi topilmadi' },
-        { status: 404 }
-      )
-    }
-
-    const body = await request.json()
     const {
       canTeach,
       wantsToLearn,
@@ -82,18 +74,30 @@ export async function POST(request: NextRequest) {
       telegram,
       whatsapp,
       language = 'UZ',
-    } = body
+    } = parsed.data
 
-    if (!canTeach?.trim() || !wantsToLearn?.trim() || !category?.trim() || !description?.trim()) {
+    if (
+      typeof canTeach !== 'string' || !canTeach.trim() ||
+      typeof wantsToLearn !== 'string' || !wantsToLearn.trim() ||
+      typeof category !== 'string' || !category.trim() ||
+      typeof description !== 'string' || !description.trim()
+    ) {
       return NextResponse.json(
         { error: 'Barcha asosiy maydonlarni to‘ldiring' },
         { status: 400 }
       )
     }
 
-    const cleanPhone = phone?.trim() || ''
-    const cleanTelegram = telegram?.trim() || ''
-    const cleanWhatsapp = whatsapp?.trim() || ''
+    if (canTeach.trim().length > 100 || wantsToLearn.trim().length > 100 || description.trim().length > 1000) {
+      return NextResponse.json(
+        { error: 'Matn uzunligi ruxsat etilgan chegaradan oshib ketdi' },
+        { status: 400 }
+      )
+    }
+
+    const cleanPhone = typeof phone === 'string' ? phone.trim().slice(0, 40) : ''
+    const cleanTelegram = typeof telegram === 'string' ? telegram.trim().slice(0, 60) : ''
+    const cleanWhatsapp = typeof whatsapp === 'string' ? whatsapp.trim().slice(0, 40) : ''
 
     if (!cleanPhone && !cleanTelegram && !cleanWhatsapp) {
       return NextResponse.json(
@@ -102,26 +106,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Kontakt matnini shakllantirish
     let primaryContact = cleanTelegram || cleanPhone || cleanWhatsapp
     if (cleanTelegram && !cleanTelegram.startsWith('@') && !cleanTelegram.startsWith('http')) {
       primaryContact = `@${cleanTelegram}`
     }
 
+    const validLanguage = typeof language === 'string' && VALID_LANGUAGES.has(language)
+      ? (language as 'UZ' | 'RU' | 'EN')
+      : 'UZ'
+
+    const validGender = typeof gender === 'string' && VALID_GENDERS.has(gender)
+      ? (gender as 'male' | 'female' | 'other')
+      : auth.user.gender || 'other'
+
     const newOffer = createOffer({
-      userId: user.id,
-      name: user.name,
-      username: user.username,
-      avatar: user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=85',
-      language: (language as 'UZ' | 'RU' | 'EN') || 'UZ',
+      userId: auth.user.id,
+      name: auth.user.name,
+      username: auth.user.username,
+      avatar: auth.user.avatar || '',
+      language: validLanguage,
       rating: '5.0',
       verified: true,
       canTeach: canTeach.trim(),
       wantsToLearn: wantsToLearn.trim(),
-      category: category.trim(),
+      category: category.trim().slice(0, 60),
       description: description.trim(),
-      location: location?.trim() || 'Toshkent',
-      gender: gender || user.gender || 'other',
+      location: typeof location === 'string' && location.trim() ? location.trim().slice(0, 80) : 'Toshkent',
+      gender: validGender,
       contact: primaryContact,
       phone: cleanPhone || undefined,
       telegram: cleanTelegram || undefined,
@@ -137,23 +148,11 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Taklifni o‘chirish uchun tizimga kirishingiz kerak' },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.slice(7)
-    const payload = verifyToken(token)
-
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'Sessiya muddati tugagan' },
-        { status: 401 }
-      )
-    }
+    const auth = authenticateRequest(
+      request,
+      'Taklifni o‘chirish uchun tizimga kirishingiz kerak'
+    )
+    if (auth.error) return auth.error
 
     const { searchParams } = new URL(request.url)
     const offerId = searchParams.get('id')
@@ -165,7 +164,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const deleted = deleteOffer(offerId, payload.userId)
+    const deleted = deleteOffer(offerId, auth.user.id, isAdminUser(auth.user))
     if (!deleted) {
       return NextResponse.json(
         { error: 'Taklif topilmadi yoki uni o‘chirish huquqingiz yo‘q' },

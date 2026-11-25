@@ -2,21 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { findUserByEmailOrUsername } from '@/lib/db'
 import { signToken } from '@/lib/auth'
+import { parseJsonBody, sanitizeUser } from '@/lib/api-helpers'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { email, password } = body
+    const parsed = await parseJsonBody<{ email?: unknown; password?: unknown }>(request)
+    if (parsed.error) return parsed.error
 
-    // Validatsiya
-    if (!email || !password) {
+    const { email, password } = parsed.data
+
+    if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return NextResponse.json(
         { error: 'Email (yoki username) va parol majburiy' },
         { status: 400 }
       )
     }
 
-    // Foydalanuvchini email yoki username orqali topish
     const user = findUserByEmailOrUsername(email)
 
     if (!user) {
@@ -26,7 +27,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Parolni tekshirish
     const isValid = await bcrypt.compare(password, user.password)
     if (!isValid) {
       return NextResponse.json(
@@ -35,7 +35,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // JWT token yaratish
     const token = signToken({
       userId: user.id,
       email: user.email,
@@ -45,22 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: 'Muvaffaqiyatli kirdingiz!',
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        gender: user.gender,
-        role: user.role,
-        coins: user.coins,
-        phone: user.phone,
-        telegram: user.telegram,
-        whatsapp: user.whatsapp,
-        lastClaimDate: user.lastClaimDate,
-        createdAt: user.createdAt,
-      },
+      user: sanitizeUser(user),
     })
   } catch (error) {
     console.error('Login error:', error)

@@ -1,36 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spendUserCoin, findUserById } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
+import { spendUserCoin } from '@/lib/db'
+import { authenticateRequest } from '@/lib/api-helpers'
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Kontaktni ochish uchun profilingizga kiring' },
-        { status: 401 }
-      )
-    }
-
-    const token = authHeader.slice(7)
-    const payload = verifyToken(token)
-
-    if (!payload) {
-      return NextResponse.json(
-        { error: 'Sessiya muddati tugagan. Qaytadan tizimga kiring' },
-        { status: 401 }
-      )
-    }
-
-    const user = findUserById(payload.userId)
-    if (!user) {
-      return NextResponse.json({ error: 'Foydalanuvchi topilmadi' }, { status: 404 })
-    }
+    const auth = authenticateRequest(request, 'Kontaktni ochish uchun profilingizga kiring')
+    if (auth.error) return auth.error
 
     const body = await request.json().catch(() => ({}))
-    const amount = body.amount && typeof body.amount === 'number' ? body.amount : 1
+    const rawAmount = body?.amount
+    const amount = rawAmount === undefined ? 1 : rawAmount
 
-    const result = spendUserCoin(user.id, amount)
+    if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0 || amount > 100) {
+      return NextResponse.json(
+        { error: 'Noto‘g‘ri tanga miqdori' },
+        { status: 400 }
+      )
+    }
+
+    const result = spendUserCoin(auth.user.id, amount)
 
     if (!result.success) {
       return NextResponse.json(

@@ -205,7 +205,7 @@ export function Topbar({
             <button
               aria-label="Admin panel"
               className="admin-topbar-pill"
-              onClick={() => setModal('admin')}
+              onClick={() => onOpenAdmin?.()}
               title="Admin Dashboard: Tahlil va monitoring"
               type="button"
             >

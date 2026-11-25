@@ -707,30 +707,37 @@ export function SwaplyApp() {
   }
 
   function handleAddCoins(amount: number) {
-    const nextCoins = coins + amount
-    setCoins(nextCoins)
-    showToast(`Hamyoningizga +${amount} tanga qo‘shildi!`)
-
     const token = localStorage.getItem('swaply_token')
-    if (token) {
-      fetch('/api/auth/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ coins: nextCoins }),
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.user && authUser) {
-            const updated = { ...authUser, coins: nextCoins }
+    if (!token) {
+      showToast('Tangalarni to‘ldirish uchun tizimga kiring')
+      return
+    }
+
+    fetch('/api/coins/topup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ amount }),
+    })
+      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+      .then(({ ok, data }) => {
+        if (ok && typeof data.coins === 'number') {
+          setCoins(data.coins)
+          showToast(data.message || `Hamyoningizga +${amount} tanga qo‘shildi!`)
+          if (authUser) {
+            const updated = { ...authUser, coins: data.coins }
             setAuthUser(updated)
             localStorage.setItem('swaply_user', JSON.stringify(updated))
           }
-        })
-        .catch(() => {})
-    }
+        } else {
+          showToast(data.error || 'Tangalarni qo‘shishda xatolik')
+        }
+      })
+      .catch(() => {
+        showToast('Serverga ulanishda xatolik')
+      })
   }
 
   function handleAuthDone(user: AuthUser, token: string) {

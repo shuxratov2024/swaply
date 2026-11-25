@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { searchUsers, getAllPublicUsers } from '@/lib/db'
+import { searchUsers } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('query')?.trim() || ''
     const gender = searchParams.get('gender')?.trim() || ''
 
-    let users = searchUsers(query, gender || undefined)
+    const users = searchUsers(query, gender || undefined)
 
     return NextResponse.json({ users })
   } catch (error) {

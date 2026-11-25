@@ -202,43 +202,28 @@ const DEFAULT_OFFERS: OfferItem[] = [
   },
 ]
 
-function ensureDbFile(): DatabaseSchema {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
-  }
+// In-memory cache to avoid synchronous disk reads & JSON.parse on every API call
+let cachedDb: DatabaseSchema | null = null
+let cachedMtimeMs = 0
 
-  let data: DatabaseSchema
-
-  if (!fs.existsSync(DB_FILE)) {
-    data = {
-      users: [],
-      offers: DEFAULT_OFFERS,
-      reports: [],
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8')
-    return data
-  }
-
-  try {
-    const raw = fs.readFileSync(DB_FILE, 'utf-8')
-    data = JSON.parse(raw) as DatabaseSchema
-    if (!Array.isArray(data.users)) data.users = []
-    if (!Array.isArray(data.offers) || data.offers.length === 0) data.offers = DEFAULT_OFFERS
-    if (!Array.isArray(data.reports)) data.reports = []
-  } catch (error) {
-    console.error('Error reading db file, restoring defaults:', error)
-    data = {
-      users: [],
-      offers: DEFAULT_OFFERS,
-      reports: [],
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8')
-    return data
-  }
-
+function normalizeDbData(data: DatabaseSchema): boolean {
   let modified = false
 
-  // Foydalanuvchilarda username va gender tekshiruvi
+  if (!Array.isArray(data.users)) {
+    data.users = []
+    modified = true
+  }
+  if (!Array.isArray(data.offers) || data.offers.length === 0) {
+    data.offers = DEFAULT_OFFERS.map((o) => ({ ...o }))
+    modified = true
+  }
+  if (!Array.isArray(data.reports)) {
+    data.reports = []
+    modified = true
+  }
+
+  const userById = new Map<number, User>()
+
   data.users.forEach((u, idx) => {
     if (!u.username || !u.username.trim()) {
       let base = u.email ? u.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '_') : `user_${u.id}`
@@ -250,16 +235,16 @@ function ensureDbFile(): DatabaseSchema {
       u.gender = 'other'
       modified = true
     }
-    if (u.username === 'amir' || u.email.includes('amir') || u.id === 2) {
+    if ((u.username === 'amir' || u.email.includes('amir') || u.id === 2) && u.role !== 'admin') {
       u.role = 'admin'
       modified = true
     }
+    userById.set(u.id, u)
   })
 
-  // Takliflarda username, location, gender to'ldirish
   data.offers.forEach((o) => {
     if (!o.username && o.userId) {
-      const author = data.users.find((u) => u.id === o.userId)
+      const author = userById.get(o.userId)
       if (author?.username) {
         o.username = author.username
         if (!o.gender && author.gender) o.gender = author.gender
@@ -276,20 +261,70 @@ function ensureDbFile(): DatabaseSchema {
     }
   })
 
-  if (modified) {
-    writeDbFile(data)
-  }
-
-  return data
+  return modified
 }
 
 function writeDbFile(data: DatabaseSchema): void {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
   }
-  const tempPath = `${DB_FILE}.tmp`
+  const tempPath = `${DB_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`
   fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8')
   fs.renameSync(tempPath, DB_FILE)
+  cachedDb = data
+  try {
+    cachedMtimeMs = fs.statSync(DB_FILE).mtimeMs
+  } catch {
+    cachedMtimeMs = Date.now()
+  }
+}
+
+function ensureDbFile(): DatabaseSchema {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+  }
+
+  if (!fs.existsSync(DB_FILE)) {
+    const initialData: DatabaseSchema = {
+      users: [],
+      offers: DEFAULT_OFFERS.map((o) => ({ ...o })),
+      reports: [],
+    }
+    writeDbFile(initialData)
+    return initialData
+  }
+
+  try {
+    const stat = fs.statSync(DB_FILE)
+    if (cachedDb && stat.mtimeMs === cachedMtimeMs) {
+      return cachedDb
+    }
+
+    const raw = fs.readFileSync(DB_FILE, 'utf-8')
+    const data = JSON.parse(raw) as DatabaseSchema
+    const modified = normalizeDbData(data)
+
+    if (modified) {
+      writeDbFile(data)
+    } else {
+      cachedDb = data
+      cachedMtimeMs = stat.mtimeMs
+    }
+    return data
+  } catch (error) {
+    console.error('Error reading db file, restoring defaults:', error)
+    const fallbackData: DatabaseSchema = {
+      users: [],
+      offers: DEFAULT_OFFERS.map((o) => ({ ...o })),
+      reports: [],
+    }
+    writeDbFile(fallbackData)
+    return fallbackData
+  }
+}
+
+function getTodayTashkent(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date())
 }
 
 // ---------------- USERNAME FORMAT VALIDATION ----------------
@@ -367,8 +402,9 @@ export function isUsernameAvailable(username: string, excludeUserId?: number): {
 
 // User amallari
 export function findUserByEmail(email: string): User | undefined {
+  const clean = email.toLowerCase().trim()
   const db = ensureDbFile()
-  return db.users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim())
+  return db.users.find((u) => u.email.toLowerCase() === clean)
 }
 
 export function findUserByUsername(username: string): User | undefined {
@@ -424,7 +460,7 @@ export function createUser(data: {
 
 export function updateUser(
   id: number,
-  updates: Partial<Omit<User, 'id' | 'email' | 'createdAt'>>
+  updates: Partial<Omit<User, 'id' | 'email' | 'createdAt' | 'role' | 'coins' | 'lastClaimDate'>>
 ): User | undefined {
   const db = ensureDbFile()
   const user = db.users.find((u) => u.id === id)
@@ -437,21 +473,19 @@ export function updateUser(
   if (updates.gender !== undefined) user.gender = updates.gender
   if (updates.bio !== undefined) user.bio = updates.bio
   if (updates.avatar !== undefined) user.avatar = updates.avatar
-  if (updates.coins !== undefined) user.coins = updates.coins
   if (updates.password !== undefined) user.password = updates.password
   if (updates.phone !== undefined) user.phone = updates.phone
   if (updates.telegram !== undefined) user.telegram = updates.telegram
   if (updates.whatsapp !== undefined) user.whatsapp = updates.whatsapp
-  if (updates.lastClaimDate !== undefined) user.lastClaimDate = updates.lastClaimDate
 
-  // Agar foydalanuvchi ismi, avatari yoki jinsi o'zgarsa, takliflarda ham yangilash
-  if (updates.name || updates.avatar || updates.username || updates.gender) {
+  // Agar foydalanuvchi ismi, avatari, username yoki jinsi o'zgarsa, takliflarda ham yangilash
+  if (updates.name !== undefined || updates.avatar !== undefined || updates.username !== undefined || updates.gender !== undefined) {
     db.offers.forEach((o) => {
       if (o.userId === id) {
-        if (updates.name) o.name = updates.name.trim()
-        if (updates.avatar) o.avatar = updates.avatar
-        if (updates.username) o.username = updates.username.toLowerCase().trim().replace(/^@/, '')
-        if (updates.gender) o.gender = updates.gender
+        if (updates.name !== undefined) o.name = user.name
+        if (updates.avatar !== undefined) o.avatar = user.avatar
+        if (updates.username !== undefined) o.username = user.username
+        if (updates.gender !== undefined) o.gender = user.gender
       }
     })
   }
@@ -462,6 +496,10 @@ export function updateUser(
 
 // Kontakt ochish uchun tanga yechish
 export function spendUserCoin(userId: number, amount: number = 1): { success: boolean; coins?: number; error?: string } {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { success: false, error: 'Tanga miqdori noto‘g‘ri' }
+  }
+
   const db = ensureDbFile()
   const user = db.users.find((u) => u.id === userId)
   if (!user) {
@@ -482,11 +520,63 @@ export function spendUserCoin(userId: number, amount: number = 1): { success: bo
   return { success: true, coins: user.coins }
 }
 
+// Hamyonga tanga qo'shish (top-up)
+export function topUpUserCoins(userId: number, amount: number): { success: boolean; coins?: number; error?: string } {
+  if (!Number.isInteger(amount) || amount <= 0 || amount > 1000) {
+    return { success: false, error: 'Noto‘g‘ri tanga miqdori (1 dan 1000 gacha bo‘lishi kerak)' }
+  }
+
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) {
+    return { success: false, error: 'Foydalanuvchi topilmadi' }
+  }
+
+  user.coins = (user.coins || 0) + amount
+  writeDbFile(db)
+  return { success: true, coins: user.coins }
+}
+
+function indexOffersByUser(offers: OfferItem[]) {
+  const byUserId = new Map<number, OfferItem[]>()
+  const byUsername = new Map<string, OfferItem[]>()
+
+  for (const offer of offers) {
+    if (offer.userId !== undefined) {
+      const list = byUserId.get(offer.userId)
+      if (list) list.push(offer)
+      else byUserId.set(offer.userId, [offer])
+    }
+    if (offer.username) {
+      const key = offer.username.toLowerCase()
+      const list = byUsername.get(key)
+      if (list) list.push(offer)
+      else byUsername.set(key, [offer])
+    }
+  }
+
+  return (u: User): OfferItem[] => {
+    const idOffers = byUserId.get(u.id) || []
+    const nameKey = u.username?.toLowerCase()
+    const nameOffers = nameKey ? byUsername.get(nameKey) || [] : []
+    if (nameOffers.length === 0) return idOffers
+    if (idOffers.length === 0) return nameOffers
+    const seen = new Set(idOffers.map((o) => o.id))
+    const merged = [...idOffers]
+    for (const o of nameOffers) {
+      if (!seen.has(o.id)) merged.push(o)
+    }
+    return merged
+  }
+}
+
 // Barcha ommaviy foydalanuvchilar
 export function getAllPublicUsers(): PublicUser[] {
   const db = ensureDbFile()
+  const getUserOffers = indexOffersByUser(db.offers)
+
   return db.users.map((u) => {
-    const userOffers = db.offers.filter((o) => o.userId === u.id || o.username === u.username)
+    const userOffers = getUserOffers(u)
     const skillsTeach = userOffers.map((o) => o.canTeach).filter(Boolean)
     const skillsLearn = userOffers.map((o) => o.wantsToLearn).filter(Boolean)
     const location = userOffers.find((o) => o.location)?.location || 'Toshkent'
@@ -499,16 +589,12 @@ export function getAllPublicUsers(): PublicUser[] {
       bio: u.bio || '',
       gender: u.gender,
       role: u.role,
-      coins: u.coins,
       rating: '5.0',
       verified: true,
       offersCount: userOffers.length,
       skillsTeach,
       skillsLearn,
       location,
-      phone: u.phone,
-      telegram: u.telegram,
-      whatsapp: u.whatsapp,
       createdAt: u.createdAt,
     }
   })
@@ -545,7 +631,8 @@ export function getAllOffers(genderFilter?: string, locationFilter?: string): Of
   }
 
   if (locationFilter && locationFilter !== 'all') {
-    offers = offers.filter((o) => o.location?.toLowerCase().includes(locationFilter.toLowerCase()))
+    const loc = locationFilter.toLowerCase()
+    offers = offers.filter((o) => o.location?.toLowerCase().includes(loc))
   }
 
   return offers
@@ -565,9 +652,11 @@ export function createOffer(data: Omit<OfferItem, 'id' | 'createdAt'>): OfferIte
   return newOffer
 }
 
-export function deleteOffer(offerId: string, userId: number): boolean {
+export function deleteOffer(offerId: string, userId: number, isAdmin = false): boolean {
   const db = ensureDbFile()
-  const index = db.offers.findIndex((o) => o.id === offerId && (o.userId === userId || userId === 2))
+  const index = db.offers.findIndex(
+    (o) => o.id === offerId && (o.userId === userId || isAdmin)
+  )
   if (index === -1) return false
   db.offers.splice(index, 1)
   writeDbFile(db)
@@ -579,7 +668,7 @@ export function claimDailyReward(userId: number): { success: boolean; coins?: nu
   const user = db.users.find((u) => u.id === userId)
   if (!user) return { success: false, error: 'Foydalanuvchi topilmadi' }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = getTodayTashkent()
   if (user.lastClaimDate === today) {
     return { success: false, error: 'Siz bugungi bonus tangani olgansiz. Ertaga yana kiring!', alreadyClaimed: true }
   }
@@ -641,11 +730,19 @@ export function getAdminStats() {
   const offers = db.offers || []
   const reports = db.reports || []
 
-  const maleCount = users.filter((u) => u.gender === 'male').length
-  const femaleCount = users.filter((u) => u.gender === 'female').length
-  const otherCount = users.filter((u) => !u.gender || u.gender === 'other').length
+  let maleCount = 0
+  let femaleCount = 0
+  let otherCount = 0
+  for (const u of users) {
+    if (u.gender === 'male') maleCount++
+    else if (u.gender === 'female') femaleCount++
+    else otherCount++
+  }
 
-  const pendingReports = reports.filter((r) => r.status === 'pending').length
+  let pendingReports = 0
+  for (const r of reports) {
+    if (r.status === 'pending') pendingReports++
+  }
 
   return {
     totalUsers: users.length,
@@ -663,6 +760,20 @@ export function getAdminStats() {
 export function getAdminUsersList(searchQuery?: string) {
   const db = ensureDbFile()
   const clean = (searchQuery || '').toLowerCase().trim().replace(/^@/, '')
+  const getUserOffers = indexOffersByUser(db.offers)
+
+  const reports = db.reports || []
+  const reportCountsByTargetId = new Map<string, number>()
+  const reportCountsByUsername = new Map<string, number>()
+  for (const r of reports) {
+    if (r.targetId) {
+      reportCountsByTargetId.set(r.targetId, (reportCountsByTargetId.get(r.targetId) || 0) + 1)
+    }
+    if (r.targetUsername) {
+      const key = r.targetUsername.toLowerCase()
+      reportCountsByUsername.set(key, (reportCountsByUsername.get(key) || 0) + 1)
+    }
+  }
 
   return db.users
     .filter((u) => {
@@ -674,10 +785,10 @@ export function getAdminUsersList(searchQuery?: string) {
       )
     })
     .map((u) => {
-      const userOffers = db.offers.filter((o) => o.userId === u.id || o.username === u.username)
-      const reportsCount = (db.reports || []).filter(
-        (r) => r.targetId === String(u.id) || r.targetUsername === u.username
-      ).length
+      const userOffers = getUserOffers(u)
+      const reportsCount =
+        (reportCountsByTargetId.get(String(u.id)) || 0) +
+        (u.username ? reportCountsByUsername.get(u.username.toLowerCase()) || 0 : 0)
 
       return {
         id: u.id,
