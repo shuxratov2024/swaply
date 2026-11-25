@@ -68,43 +68,64 @@ export function Topbar({
   const [searching, setSearching] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Headerda foydalanuvchilarni Ism, Familiya va @username orqali qidirish
+  // Headerda foydalanuvchilarni Ism, Familiya va @username orqali qidirish (AbortController bilan)
   useEffect(() => {
     const clean = headerSearch.trim()
     if (!clean || clean.length < 2) {
       setSearchResults([])
       setShowDropdown(false)
+      setSearching(false)
       return
     }
 
+    const controller = new AbortController()
     setSearching(true)
+
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/users?query=${encodeURIComponent(clean)}`)
+        const res = await fetch(`/api/users?query=${encodeURIComponent(clean)}`, {
+          signal: controller.signal,
+        })
         const data = await res.json()
         if (Array.isArray(data.users)) {
           setSearchResults(data.users)
           setShowDropdown(true)
         }
-      } catch {
-        setSearchResults([])
+      } catch (err) {
+        if ((err as Error)?.name !== 'AbortError') {
+          setSearchResults([])
+        }
       } finally {
-        setSearching(false)
+        if (!controller.signal.aborted) {
+          setSearching(false)
+        }
       }
-    }, 250)
+    }, 220)
 
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
   }, [headerSearch])
 
-  // Tashqariga bosganda dropdownni yopish
+  // Tashqariga bosganda yoki Escape bosilganda dropdownni yopish
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(false)
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setShowDropdown(false)
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   return (

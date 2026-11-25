@@ -1,16 +1,20 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
+  ArrowUp,
   ArrowUpRight,
   BadgeCheck,
   Check,
+  ChevronDown,
   Flag,
   Heart,
   LogIn,
   Mail,
   MapPin,
+  RefreshCw,
   Search,
   Shield,
   ShieldAlert,
@@ -27,20 +31,20 @@ import {
 import { Hero } from './hero'
 import { SkillCard } from './skill-card'
 import { Topbar } from './topbar'
-import {
-  AuthModal,
-  OfferModal,
-  ProfileModal,
-  PublicProfileModal,
-  WalletModal,
-  ConfirmUnlockModal,
-  SecurityNoticeModal,
-  ReportModal,
-  type AuthUser,
-} from './swaply-modals'
-import { AdminPage } from './admin-page'
+import type { AuthUser } from './swaply-modals'
 import { copy } from './translations'
 import { type Locale, type Offer, type MemberUser, type Gender, avatarOptions } from './types'
+
+// Lazy-loaded modals & AdminPage to minimize initial bundle size
+const AuthModal = dynamic(() => import('./swaply-modals').then((m) => m.AuthModal), { ssr: false })
+const OfferModal = dynamic(() => import('./swaply-modals').then((m) => m.OfferModal), { ssr: false })
+const ProfileModal = dynamic(() => import('./swaply-modals').then((m) => m.ProfileModal), { ssr: false })
+const PublicProfileModal = dynamic(() => import('./swaply-modals').then((m) => m.PublicProfileModal), { ssr: false })
+const WalletModal = dynamic(() => import('./swaply-modals').then((m) => m.WalletModal), { ssr: false })
+const ConfirmUnlockModal = dynamic(() => import('./swaply-modals').then((m) => m.ConfirmUnlockModal), { ssr: false })
+const SecurityNoticeModal = dynamic(() => import('./swaply-modals').then((m) => m.SecurityNoticeModal), { ssr: false })
+const ReportModal = dynamic(() => import('./swaply-modals').then((m) => m.ReportModal), { ssr: false })
+const AdminPage = dynamic(() => import('./admin-page').then((m) => m.AdminPage), { ssr: false })
 
 const initialOffers: Offer[] = [
   {
@@ -151,10 +155,16 @@ const initialOffers: Offer[] = [
   },
 ]
 
-export function SwaplyApp() {
+export function SwaplyApp({
+  initialOffers: ssrOffers,
+  initialMembers: ssrMembers,
+}: {
+  initialOffers?: Offer[]
+  initialMembers?: MemberUser[]
+} = {}) {
   const [locale, setLocale] = useState<Locale>('UZ')
-  const [offers, setOffers] = useState<Offer[]>(initialOffers)
-  const [members, setMembers] = useState<MemberUser[]>([])
+  const [offers, setOffers] = useState<Offer[]>(ssrOffers && ssrOffers.length > 0 ? ssrOffers : initialOffers)
+  const [members, setMembers] = useState<MemberUser[]>(ssrMembers || [])
   const [coins, setCoins] = useState(0)
   const [claimed, setClaimed] = useState(false)
   const [revealedContacts, setRevealedContacts] = useState<string[]>([])
@@ -162,6 +172,11 @@ export function SwaplyApp() {
   const [activeCategory, setActiveCategory] = useState(copy.UZ.all)
   const [filterOnlyMine, setFilterOnlyMine] = useState(false)
   const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all')
+  const [locationFilter, setLocationFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'newest' | 'rating' | 'verified'>('newest')
+  const [visibleLimit, setVisibleLimit] = useState(9)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [showScrollTop, setShowScrollTop] = useState(false)
   const [viewMode, setViewMode] = useState<'offers' | 'members' | 'favorites'>('offers')
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<
@@ -205,7 +220,8 @@ export function SwaplyApp() {
   const text = copy[locale]
   const categories = [text.all, ...text.categories]
 
-  async function fetchData() {
+  async function fetchData(showFeedback = false) {
+    if (showFeedback) setIsRefreshing(true)
     try {
       const [offersRes, usersRes] = await Promise.all([
         fetch('/api/offers'),
@@ -225,13 +241,18 @@ export function SwaplyApp() {
           setMembers(usersData.users)
         }
       }
+      if (showFeedback) showToast('Ma’lumotlar yangilandi!')
     } catch (err) {
       console.warn('Data fetch error, using local fallback:', err)
+    } finally {
+      if (showFeedback) setIsRefreshing(false)
     }
   }
 
   useEffect(() => {
-    fetchData()
+    if (!ssrOffers || ssrOffers.length === 0 || !ssrMembers) {
+      fetchData()
+    }
 
     try {
       const savedFavs = localStorage.getItem('swaply_favorites')
@@ -240,6 +261,23 @@ export function SwaplyApp() {
       }
     } catch {}
   }, [])
+
+  useEffect(() => {
+    function handleScroll() {
+      setShowScrollTop(window.scrollY > 420)
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape' && modal) {
+        setModal(null)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [modal])
 
   useEffect(() => {
     const savedUser = localStorage.getItem('swaply_user')
@@ -347,6 +385,17 @@ export function SwaplyApp() {
     })
   }
 
+  const availableLocations = useMemo(() => {
+    const set = new Set<string>()
+    for (const o of offers) {
+      if (o.location) {
+        const city = o.location.split(',')[0].trim()
+        if (city) set.add(city)
+      }
+    }
+    return Array.from(set).slice(0, 6)
+  }, [offers])
+
   const visibleOffers = useMemo(() => {
     const normalizedQuery = search.trim().toLocaleLowerCase()
 
@@ -356,13 +405,17 @@ export function SwaplyApp() {
       list = list.filter((o) => favorites.includes(o.id))
     }
 
-    return list.filter((offer) => {
+    const filtered = list.filter((offer) => {
       if (filterOnlyMine && authUser) {
         if (offer.userId !== authUser.id) return false
       }
 
       if (genderFilter !== 'all') {
         if (offer.gender !== genderFilter) return false
+      }
+
+      if (locationFilter !== 'all') {
+        if (!offer.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false
       }
 
       const selectedCategoryIndex = categories.indexOf(activeCategory)
@@ -375,7 +428,22 @@ export function SwaplyApp() {
         `${offer.name} @${offer.username || ''} ${offer.canTeach} ${offer.wantsToLearn} ${offer.category} ${offer.description} ${offer.location || ''}`.toLocaleLowerCase()
       return matchesCategory && (!normalizedQuery || searchable.includes(normalizedQuery))
     })
-  }, [activeCategory, categories, offers, search, filterOnlyMine, genderFilter, authUser, viewMode, favorites])
+
+    if (sortBy === 'rating') {
+      return [...filtered].sort((a, b) => parseFloat(b.rating || '0') - parseFloat(a.rating || '0'))
+    }
+    if (sortBy === 'verified') {
+      return [...filtered].sort((a, b) => Number(Boolean(b.verified)) - Number(Boolean(a.verified)))
+    }
+    return filtered
+  }, [activeCategory, categories, offers, search, filterOnlyMine, genderFilter, locationFilter, sortBy, authUser, viewMode, favorites])
+
+  const displayedOffers = useMemo(() => {
+    if (search.trim() || filterOnlyMine || viewMode === 'favorites') {
+      return visibleOffers
+    }
+    return visibleOffers.slice(0, visibleLimit)
+  }, [visibleOffers, visibleLimit, search, filterOnlyMine, viewMode])
 
   const visibleMembers = useMemo(() => {
     const q = search.trim().toLowerCase().replace(/^@/, '')
@@ -882,7 +950,7 @@ export function SwaplyApp() {
             </button>
           </div>
 
-          {/* Jins bo'yicha tezkor filtr (Gender filter) */}
+          {/* Jins, joylashuv va saralash bo'yicha tezkor filtr */}
           <div className="gender-filter-bar">
             <span className="gender-filter-label">Jins bo‘yicha filtr:</span>
             <div className="gender-filter-pills">
@@ -908,6 +976,35 @@ export function SwaplyApp() {
                 👩 Ayol
               </button>
             </div>
+
+            {viewMode !== 'members' && (
+              <div className="extra-filter-controls">
+                <select
+                  aria-label="Joylashuv bo‘yicha filtr"
+                  className="filter-select-pill"
+                  onChange={(e) => setLocationFilter(e.target.value)}
+                  value={locationFilter}
+                >
+                  <option value="all">📍 Barcha hududlar</option>
+                  {availableLocations.map((loc) => (
+                    <option key={loc} value={loc}>
+                      {loc}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="Saralash"
+                  className="filter-select-pill"
+                  onChange={(e) => setSortBy(e.target.value as 'newest' | 'rating' | 'verified')}
+                  value={sortBy}
+                >
+                  <option value="newest">🕒 Eng yangilar</option>
+                  <option value="rating">⭐ Top reyting</option>
+                  <option value="verified">✅ Tasdiqlanganlar</option>
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="section-heading-row">
@@ -944,6 +1041,16 @@ export function SwaplyApp() {
                   <span className="my-offers-badge">{myOffersCount}</span>
                 </button>
               )}
+              <button
+                aria-label="Ma’lumotlarni yangilash"
+                className="refresh-icon-btn"
+                disabled={isRefreshing}
+                onClick={() => fetchData(true)}
+                title="Ro‘yxatni yangilash"
+                type="button"
+              >
+                <RefreshCw className={isRefreshing ? 'spin-icon' : ''} size={14} />
+              </button>
               <span className="online-count">
                 <span className="live-dot" /> 24 online
               </span>
@@ -1052,7 +1159,7 @@ export function SwaplyApp() {
             /* Takliflar (Offers) bo'limi */
             <>
               <div className="offers-grid">
-                {visibleOffers.map((offer) => (
+                {displayedOffers.map((offer) => (
                   <SkillCard
                     isBookmarked={favorites.includes(offer.id)}
                     isOwner={Boolean(authUser && offer.userId === authUser.id)}
@@ -1068,6 +1175,19 @@ export function SwaplyApp() {
                   />
                 ))}
               </div>
+
+              {displayedOffers.length < visibleOffers.length && (
+                <div className="load-more-wrap">
+                  <button
+                    className="button button-cream load-more-btn"
+                    onClick={() => setVisibleLimit((prev) => prev + 9)}
+                    type="button"
+                  >
+                    <ChevronDown size={16} />
+                    Yana ko‘proq ko‘rsatish ({visibleOffers.length - displayedOffers.length} ta qoldi)
+                  </button>
+                </div>
+              )}
 
               {visibleOffers.length === 0 && (
                 <div className="empty-state">
@@ -1089,6 +1209,8 @@ export function SwaplyApp() {
                         setSearch('')
                         setActiveCategory(text.all)
                         setGenderFilter('all')
+                        setLocationFilter('all')
+                        setSortBy('newest')
                         setFilterOnlyMine(false)
                         setViewMode('offers')
                       }}
@@ -1230,6 +1352,17 @@ export function SwaplyApp() {
           onUnlockContact={handleUnlockContactClick}
           revealedContacts={revealedContacts}
         />
+      )}
+      {showScrollTop && (
+        <button
+          aria-label="Yuqoriga qaytish"
+          className="scroll-top-fab"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          title="Yuqoriga qaytish"
+          type="button"
+        >
+          <ArrowUp size={18} />
+        </button>
       )}
     </div>
   )

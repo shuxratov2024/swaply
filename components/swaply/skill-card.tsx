@@ -43,9 +43,17 @@ export function SkillCard({
   onReport?: (offer: Offer) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [copiedUsername, setCopiedUsername] = useState(false)
   const text = copy[locale]
 
   const isUnlocked = revealed || isOwner
+
+  function handleCopyUsername(e: React.MouseEvent) {
+    e.stopPropagation()
+    navigator.clipboard.writeText(`@${displayUsername}`)
+    setCopiedUsername(true)
+    setTimeout(() => setCopiedUsername(false), 1800)
+  }
 
   function handleCopyContact() {
     const contacts: string[] = []
@@ -114,7 +122,15 @@ export function SkillCard({
               {offer.verified && <BadgeCheck aria-label={text.verified} className="verified-icon" size={14} />}
             </div>
             <div className="user-subline">
-              <span className="card-username-badge">@{displayUsername}</span>
+              <button
+                className="card-username-badge card-username-copy"
+                onClick={handleCopyUsername}
+                title={`@${displayUsername} nusxalash`}
+                type="button"
+              >
+                @{displayUsername}
+                {copiedUsername ? <Check size={10} /> : <Copy size={10} />}
+              </button>
               {offer.gender === 'male' && <span className="gender-tag male" title="Erkak">👨 Erkak</span>}
               {offer.gender === 'female' && <span className="gender-tag female" title="Ayol">👩 Ayol</span>}
               <i />
