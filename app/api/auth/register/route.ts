@@ -1,21 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { findUserByEmail, isUsernameAvailable, createUser } from '@/lib/db'
+import { findUserByEmail, isUsernameAvailable, createUser, verifyOtpChallenge } from '@/lib/db'
 import { signToken } from '@/lib/auth'
 import { parseJsonBody, sanitizeUser } from '@/lib/api-helpers'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request)
+    const rl = checkRateLimit(`register:${ip}`, 10, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: `Juda ko‘p so‘rov. ${rl.retryAfterSec} soniyadan keyin urinib ko‘ring` },
+        { status: 429 }
+      )
+    }
+
     const parsed = await parseJsonBody<{
       name?: unknown
       username?: unknown
       email?: unknown
       password?: unknown
       gender?: unknown
+      otpCode?: unknown
     }>(request)
     if (parsed.error) return parsed.error
 
-    const { name, username, email, password, gender } = parsed.data
+    const { name, username, email, password, gender, otpCode } = parsed.data
 
     if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 60) {
       return NextResponse.json(
@@ -66,6 +77,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Bu email allaqachon ro‘yxatdan o‘tgan' },
         { status: 409 }
+      )
+    }
+
+    if (typeof otpCode !== 'string' || !/^\d{6}$/.test(otpCode.trim())) {
+      return NextResponse.json(
+        { error: 'Emailga yuborilgan 6 xonali tasdiqlash kodini kiriting' },
+        { status: 400 }
+      )
+    }
+
+    const otpCheck = verifyOtpChallenge(email, otpCode, 'register')
+    if (!otpCheck.valid) {
+      return NextResponse.json(
+        { error: otpCheck.error || 'Tasdiqlash kodi noto‘g‘ri' },
+        { status: 401 }
       )
     }
 

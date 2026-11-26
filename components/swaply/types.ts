@@ -24,6 +24,8 @@ export type Offer = {
   createdAt?: string
 }
 
+export type UserRole = 'admin' | 'supporter' | 'user'
+
 export type MemberUser = {
   id: number
   name: string
@@ -31,10 +33,11 @@ export type MemberUser = {
   avatar: string
   bio: string
   gender?: Gender
-  role?: 'admin' | 'user'
+  role?: UserRole
   coins?: number
   rating?: string
   verified?: boolean
+  banned?: boolean
   offersCount: number
   skillsTeach: string[]
   skillsLearn: string[]

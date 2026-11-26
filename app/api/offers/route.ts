@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllOffers, createOffer, deleteOffer } from '@/lib/db'
-import { authenticateRequest, isAdminUser, parseJsonBody } from '@/lib/api-helpers'
+import {
+  getAllOffers,
+  createOffer,
+  deleteOffer,
+  findUserById,
+  sanitizeOfferForViewer,
+} from '@/lib/db'
+import { verifyToken } from '@/lib/auth'
+import { authenticateRequest, isStaffUser, parseJsonBody } from '@/lib/api-helpers'
 
 const VALID_LANGUAGES = new Set(['UZ', 'RU', 'EN'])
 const VALID_GENDERS = new Set(['male', 'female', 'other'])
@@ -34,7 +41,19 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ offers })
+    let viewerUser = null
+    const authHeader = request.headers.get('authorization')
+    if (authHeader?.startsWith('Bearer ')) {
+      const payload = verifyToken(authHeader.slice(7).trim())
+      if (payload) {
+        const found = findUserById(payload.userId)
+        if (found && !found.banned) viewerUser = found
+      }
+    }
+
+    return NextResponse.json({
+      offers: offers.map((offer) => sanitizeOfferForViewer(offer, viewerUser)),
+    })
   } catch (error) {
     console.error('Offers GET error:', error)
     return NextResponse.json({ error: 'Serverda xatolik yuz berdi' }, { status: 500 })
@@ -126,7 +145,7 @@ export async function POST(request: NextRequest) {
       avatar: auth.user.avatar || '',
       language: validLanguage,
       rating: '5.0',
-      verified: true,
+      verified: Boolean(auth.user.verified || isStaffUser(auth.user)),
       canTeach: canTeach.trim(),
       wantsToLearn: wantsToLearn.trim(),
       category: category.trim().slice(0, 60),
@@ -164,7 +183,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const deleted = deleteOffer(offerId, auth.user.id, isAdminUser(auth.user))
+    const deleted = deleteOffer(offerId, auth.user.id, isStaffUser(auth.user))
     if (!deleted) {
       return NextResponse.json(
         { error: 'Taklif topilmadi yoki uni o‘chirish huquqingiz yo‘q' },

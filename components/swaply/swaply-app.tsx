@@ -35,7 +35,7 @@ import type { AuthUser } from './swaply-modals'
 import { copy } from './translations'
 import { type Locale, type Offer, type MemberUser, type Gender, avatarOptions } from './types'
 
-// Lazy-loaded modals & AdminPage to minimize initial bundle size
+// Lazy-loaded modals to minimize initial bundle size
 const AuthModal = dynamic(() => import('./swaply-modals').then((m) => m.AuthModal), { ssr: false })
 const OfferModal = dynamic(() => import('./swaply-modals').then((m) => m.OfferModal), { ssr: false })
 const ProfileModal = dynamic(() => import('./swaply-modals').then((m) => m.ProfileModal), { ssr: false })
@@ -44,7 +44,7 @@ const WalletModal = dynamic(() => import('./swaply-modals').then((m) => m.Wallet
 const ConfirmUnlockModal = dynamic(() => import('./swaply-modals').then((m) => m.ConfirmUnlockModal), { ssr: false })
 const SecurityNoticeModal = dynamic(() => import('./swaply-modals').then((m) => m.SecurityNoticeModal), { ssr: false })
 const ReportModal = dynamic(() => import('./swaply-modals').then((m) => m.ReportModal), { ssr: false })
-const AdminPage = dynamic(() => import('./admin-page').then((m) => m.AdminPage), { ssr: false })
+const ConfirmActionModal = dynamic(() => import('./swaply-modals').then((m) => m.ConfirmActionModal), { ssr: false })
 
 const initialOffers: Offer[] = [
   {
@@ -188,9 +188,12 @@ export function SwaplyApp({
     | 'confirmUnlock'
     | 'securityNotice'
     | 'report'
-    | 'admin'
+    | 'confirmDelete'
     | null
   >(null)
+
+  const [pendingDeleteOfferId, setPendingDeleteOfferId] = useState<string | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const [selectedMember, setSelectedMember] = useState<MemberUser | null>(null)
   const [selectedOfferForUnlock, setSelectedOfferForUnlock] = useState<Offer | null>(null)
@@ -223,8 +226,11 @@ export function SwaplyApp({
   async function fetchData(showFeedback = false) {
     if (showFeedback) setIsRefreshing(true)
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('swaply_token') : null
       const [offersRes, usersRes] = await Promise.all([
-        fetch('/api/offers'),
+        fetch('/api/offers', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }),
         fetch('/api/users'),
       ])
 
@@ -311,9 +317,13 @@ export function SwaplyApp({
             if (data?.user) {
               setAuthUser(data.user)
               setCoins(data.user.coins ?? 0)
+              if (Array.isArray(data.user.unlockedOfferIds)) {
+                setRevealedContacts(data.user.unlockedOfferIds)
+              }
               if (data.user.lastClaimDate === today) {
                 setClaimed(true)
               }
+              fetchData()
               setProfile({
                 name: data.user.name,
                 username: data.user.username || '',
@@ -345,7 +355,9 @@ export function SwaplyApp({
     setCoins(0)
     setClaimed(false)
     setProfile({ name: '', username: '', bio: '', avatar: '', gender: 'male' })
+    setRevealedContacts([])
     setFilterOnlyMine(false)
+    fetchData()
   }
 
   useEffect(() => {
@@ -623,7 +635,7 @@ export function SwaplyApp({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount: 1 }),
+        body: JSON.stringify({ offerId: selectedOfferForUnlock.id, amount: 1 }),
       })
       const data = await res.json()
 
@@ -635,7 +647,25 @@ export function SwaplyApp({
           localStorage.setItem('swaply_user', JSON.stringify(updatedUser))
         }
 
-        setRevealedContacts((prev) => [...prev, selectedOfferForUnlock.id])
+        if (data.contact) {
+          setOffers((prev) =>
+            prev.map((item) =>
+              item.id === selectedOfferForUnlock.id
+                ? {
+                    ...item,
+                    contact: data.contact.contact || item.contact,
+                    phone: data.contact.phone,
+                    telegram: data.contact.telegram,
+                    whatsapp: data.contact.whatsapp,
+                  }
+                : item
+            )
+          )
+        }
+
+        setRevealedContacts((prev) =>
+          prev.includes(selectedOfferForUnlock.id) ? prev : [...prev, selectedOfferForUnlock.id]
+        )
         showToast(`${selectedOfferForUnlock.name} kontakt ma’lumotlari ochildi!`)
 
         // 15 soniyalik xavfsizlik eslatmasini ochish!
@@ -707,20 +737,29 @@ export function SwaplyApp({
     }
   }
 
-  async function handleDeleteOffer(offerId: string) {
+  function handleDeleteOffer(offerId: string) {
+    setPendingDeleteOfferId(offerId)
+    setModal('confirmDelete')
+  }
+
+  async function confirmDeleteOffer() {
+    if (!pendingDeleteOfferId) return
     const token = localStorage.getItem('swaply_token')
     if (!token) return
 
+    setDeleteBusy(true)
     try {
-      const res = await fetch(`/api/offers?id=${offerId}`, {
+      const res = await fetch(`/api/offers?id=${pendingDeleteOfferId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
 
       if (res.ok) {
-        setOffers((current) => current.filter((o) => o.id !== offerId))
-        setFavorites((current) => current.filter((id) => id !== offerId))
+        setOffers((current) => current.filter((o) => o.id !== pendingDeleteOfferId))
+        setFavorites((current) => current.filter((id) => id !== pendingDeleteOfferId))
         showToast('Taklifingiz muvaffaqiyatli o‘chirildi')
+        setModal(null)
+        setPendingDeleteOfferId(null)
         fetchData()
       } else {
         const data = await res.json()
@@ -728,6 +767,8 @@ export function SwaplyApp({
       }
     } catch {
       showToast('Serverga ulanishda xatolik')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -774,44 +815,17 @@ export function SwaplyApp({
     }
   }
 
-  function handleAddCoins(amount: number) {
-    const token = localStorage.getItem('swaply_token')
-    if (!token) {
-      showToast('Tangalarni to‘ldirish uchun tizimga kiring')
-      return
-    }
-
-    fetch('/api/coins/topup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ amount }),
-    })
-      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
-        if (ok && typeof data.coins === 'number') {
-          setCoins(data.coins)
-          showToast(data.message || `Hamyoningizga +${amount} tanga qo‘shildi!`)
-          if (authUser) {
-            const updated = { ...authUser, coins: data.coins }
-            setAuthUser(updated)
-            localStorage.setItem('swaply_user', JSON.stringify(updated))
-          }
-        } else {
-          showToast(data.error || 'Tangalarni qo‘shishda xatolik')
-        }
-      })
-      .catch(() => {
-        showToast('Serverga ulanishda xatolik')
-      })
+  function handleTopUpSubmitted(message: string) {
+    showToast(message)
   }
 
   function handleAuthDone(user: AuthUser, token: string) {
     setAuthUser(user)
     setIsLoggedIn(true)
     setCoins(user.coins ?? 5)
+    if (Array.isArray(user.unlockedOfferIds)) {
+      setRevealedContacts(user.unlockedOfferIds)
+    }
 
     const today = new Date().toISOString().split('T')[0]
     if (user.lastClaimDate === today) {
@@ -851,8 +865,10 @@ export function SwaplyApp({
       </div>
 
       {toastMessage && (
-        <aside aria-label="Xabarnoma" className="toast surface-card">
-          <Sparkles aria-hidden="true" size={15} />
+        <aside aria-label="Xabarnoma" className="toast-message surface-card">
+          <span className="toast-check">
+            <Sparkles aria-hidden="true" size={13} />
+          </span>
           <span>{toastMessage}</span>
         </aside>
       )}
@@ -865,7 +881,6 @@ export function SwaplyApp({
           avatar={profile.avatar}
           claimed={claimed}
           coins={coins}
-          isAdmin={authUser?.role === 'admin' || authUser?.username === 'amir'}
           isLoggedIn={isLoggedIn}
           locale={locale}
           name={profile.name}
@@ -874,7 +889,6 @@ export function SwaplyApp({
           onEditProfile={handleProfileClick}
           onLocaleChange={setLocale}
           onLogout={handleLogoutCleanup}
-          onOpenAdmin={() => setModal('admin')}
           onRegister={openRegisterModal}
           onSelectUser={openPublicProfile}
           onSignIn={openSignInModal}
@@ -894,15 +908,17 @@ export function SwaplyApp({
         />
 
         {!isLoggedIn && (
-          <section aria-labelledby="guest-banner-title" className="guest-action-banner surface-card">
+          <section aria-labelledby="guest-banner-title" className="guest-banner surface-card">
             <div className="guest-banner-content">
               <span className="guest-banner-badge">
                 <Sparkles size={13} /> Yangi a‘zolar uchun +5 bepul tanga
               </span>
-              <h3 className="guest-banner-title">O‘z bilimlaringizni boshqalar bilan almashtiring!</h3>
+              <h3 className="guest-banner-title" id="guest-banner-title">
+                O‘z bilimlaringizni boshqalar bilan almashtiring!
+              </h3>
               <p className="guest-banner-text">
                 Hech qanday pul to‘lamasdan dasturlash, chet tillari, dizayn va boshqa sohalarda tajriba almashing.
-                Boshlash uchun hoziroq ro‘yxatdan o‘ting va 5 ta bepul tanga oling!
+                Boshlash uchun ro‘yxatdan o‘ting va 5 ta bepul tanga oling!
               </p>
             </div>
             <div className="guest-banner-actions">
@@ -1328,15 +1344,26 @@ export function SwaplyApp({
         />
       )}
 
-      {modal === 'admin' && (
-        <AdminPage onClose={() => setModal(null)} />
-      )}
-
       {modal === 'wallet' && (
         <WalletModal
           coins={coins}
-          onAddCoins={handleAddCoins}
           onClose={() => setModal(null)}
+          onTopUpSubmitted={handleTopUpSubmitted}
+        />
+      )}
+
+      {modal === 'confirmDelete' && pendingDeleteOfferId && (
+        <ConfirmActionModal
+          busy={deleteBusy}
+          confirmLabel="Ha, o‘chirilsin"
+          description="Haqiqatan ham bu taklifni o‘chirmoqchimisiz? Bu amalni ortga qaytarib bo‘lmaydi."
+          onClose={() => {
+            if (deleteBusy) return
+            setModal(null)
+            setPendingDeleteOfferId(null)
+          }}
+          onConfirm={confirmDeleteOffer}
+          title="Taklifni o‘chirish"
         />
       )}
 

@@ -1,5 +1,8 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
+
+export type UserRole = 'admin' | 'supporter' | 'user'
 
 export type User = {
   id: number
@@ -10,11 +13,14 @@ export type User = {
   avatar: string
   bio: string
   gender?: 'male' | 'female' | 'other'
-  role?: 'admin' | 'user'
+  role?: UserRole
+  verified?: boolean
+  banned?: boolean
   coins: number
   phone?: string
   telegram?: string
   whatsapp?: string
+  unlockedOfferIds?: string[]
   lastClaimDate?: string
   createdAt: string
 }
@@ -48,10 +54,11 @@ export type PublicUser = {
   avatar: string
   bio: string
   gender?: 'male' | 'female' | 'other'
-  role?: 'admin' | 'user'
+  role?: UserRole
   coins?: number
   rating?: string
   verified?: boolean
+  banned?: boolean
   offersCount: number
   skillsTeach: string[]
   skillsLearn: string[]
@@ -59,6 +66,61 @@ export type PublicUser = {
   phone?: string
   telegram?: string
   whatsapp?: string
+  createdAt: string
+}
+
+export type CoinPackId = 'start' | 'popular' | 'pro' | 'vip'
+
+export type CoinPack = {
+  id: CoinPackId
+  title: string
+  subtitle: string
+  baseCoins: number
+  bonusCoins: number
+  totalCoins: number
+  priceUzs: number
+  badge?: string
+  popular?: boolean
+}
+
+export type PromoCode = {
+  code: string
+  bonusCoins: number
+  bonusPercent: number
+  maxUses: number
+  usedCount: number
+  active: boolean
+  description?: string
+  createdAt: string
+}
+
+export type CoinTransaction = {
+  id: string
+  userId: number
+  userName: string
+  userUsername: string
+  type: 'topup' | 'spend' | 'daily_bonus' | 'admin_adjust'
+  packId?: CoinPackId
+  packTitle?: string
+  coinsDelta: number
+  amountUzs: number
+  provider?: 'payme' | 'click' | 'uzum'
+  paymentRef?: string
+  promoCode?: string
+  status: 'pending' | 'completed' | 'rejected'
+  note?: string
+  reviewedBy?: string
+  createdAt: string
+}
+
+export type AdminLog = {
+  id: string
+  actorId: number
+  actorUsername: string
+  actorRole: UserRole
+  action: string
+  target: string
+  details?: string
   createdAt: string
 }
 
@@ -78,11 +140,91 @@ export type ReportItem = {
   createdAt: string
 }
 
+export type OtpChallenge = {
+  email: string
+  purpose: 'login' | 'register' | 'reset'
+  codeHash: string
+  expiresAt: number
+  attempts: number
+}
+
 export type DatabaseSchema = {
   users: User[]
   offers: OfferItem[]
   reports?: ReportItem[]
+  transactions?: CoinTransaction[]
+  promoCodes?: PromoCode[]
+  adminLogs?: AdminLog[]
+  otpChallenges?: OtpChallenge[]
 }
+
+export const COIN_PRICE_UZS = 1000 // 1 tanga = 1,000 UZS
+
+export const COIN_PACKS: CoinPack[] = [
+  {
+    id: 'start',
+    title: 'Start',
+    subtitle: 'Sinab ko‘rish uchun',
+    baseCoins: 5,
+    bonusCoins: 0,
+    totalCoins: 5,
+    priceUzs: 5000,
+  },
+  {
+    id: 'popular',
+    title: 'Ommabop',
+    subtitle: '+20% bepul bonus',
+    baseCoins: 15,
+    bonusCoins: 3,
+    totalCoins: 18,
+    priceUzs: 15000,
+    badge: 'Mashhur',
+    popular: true,
+  },
+  {
+    id: 'pro',
+    title: 'Pro',
+    subtitle: '+30% bepul bonus',
+    baseCoins: 30,
+    bonusCoins: 9,
+    totalCoins: 39,
+    priceUzs: 30000,
+    badge: 'Eng foydali',
+  },
+  {
+    id: 'vip',
+    title: 'VIP',
+    subtitle: '+40% bepul bonus',
+    baseCoins: 50,
+    bonusCoins: 20,
+    totalCoins: 70,
+    priceUzs: 50000,
+    badge: 'Maksimal',
+  },
+]
+
+const DEFAULT_PROMO_CODES: PromoCode[] = [
+  {
+    code: 'WELCOME',
+    bonusCoins: 3,
+    bonusPercent: 0,
+    maxUses: 1000,
+    usedCount: 0,
+    active: true,
+    description: 'Yangi foydalanuvchilar uchun +3 bonus tanga',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    code: 'SWAPLY20',
+    bonusCoins: 0,
+    bonusPercent: 20,
+    maxUses: 500,
+    usedCount: 0,
+    active: true,
+    description: 'Paketga +20% qo‘shimcha bonus tanga',
+    createdAt: new Date().toISOString(),
+  },
+]
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DB_FILE = path.join(DATA_DIR, 'swaply.json')
@@ -221,6 +363,18 @@ function normalizeDbData(data: DatabaseSchema): boolean {
     data.reports = []
     modified = true
   }
+  if (!Array.isArray(data.transactions)) {
+    data.transactions = []
+    modified = true
+  }
+  if (!Array.isArray(data.promoCodes) || data.promoCodes.length === 0) {
+    data.promoCodes = DEFAULT_PROMO_CODES.map((p) => ({ ...p }))
+    modified = true
+  }
+  if (!Array.isArray(data.adminLogs)) {
+    data.adminLogs = []
+    modified = true
+  }
 
   const userById = new Map<number, User>()
 
@@ -270,7 +424,14 @@ function writeDbFile(data: DatabaseSchema): void {
   }
   const tempPath = `${DB_FILE}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`
   fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8')
-  fs.renameSync(tempPath, DB_FILE)
+  try {
+    fs.renameSync(tempPath, DB_FILE)
+  } catch {
+    fs.copyFileSync(tempPath, DB_FILE)
+    try {
+      fs.unlinkSync(tempPath)
+    } catch {}
+  }
   cachedDb = data
   try {
     cachedMtimeMs = fs.statSync(DB_FILE).mtimeMs
@@ -289,6 +450,9 @@ function ensureDbFile(): DatabaseSchema {
       users: [],
       offers: DEFAULT_OFFERS.map((o) => ({ ...o })),
       reports: [],
+      transactions: [],
+      promoCodes: DEFAULT_PROMO_CODES.map((p) => ({ ...p })),
+      adminLogs: [],
     }
     writeDbFile(initialData)
     return initialData
@@ -317,6 +481,9 @@ function ensureDbFile(): DatabaseSchema {
       users: [],
       offers: DEFAULT_OFFERS.map((o) => ({ ...o })),
       reports: [],
+      transactions: [],
+      promoCodes: DEFAULT_PROMO_CODES.map((p) => ({ ...p })),
+      adminLogs: [],
     }
     writeDbFile(fallbackData)
     return fallbackData
@@ -494,6 +661,37 @@ export function updateUser(
   return user
 }
 
+function pushTransaction(db: DatabaseSchema, tx: CoinTransaction) {
+  if (!Array.isArray(db.transactions)) db.transactions = []
+  db.transactions.unshift(tx)
+  if (db.transactions.length > 500) {
+    db.transactions = db.transactions.slice(0, 500)
+  }
+}
+
+function pushAdminLog(
+  db: DatabaseSchema,
+  actor: { id: number; username: string; role?: UserRole },
+  action: string,
+  target: string,
+  details?: string
+) {
+  if (!Array.isArray(db.adminLogs)) db.adminLogs = []
+  db.adminLogs.unshift({
+    id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    actorId: actor.id,
+    actorUsername: actor.username,
+    actorRole: actor.role || 'admin',
+    action,
+    target,
+    details,
+    createdAt: new Date().toISOString(),
+  })
+  if (db.adminLogs.length > 300) {
+    db.adminLogs = db.adminLogs.slice(0, 300)
+  }
+}
+
 // Kontakt ochish uchun tanga yechish
 export function spendUserCoin(userId: number, amount: number = 1): { success: boolean; coins?: number; error?: string } {
   if (!Number.isInteger(amount) || amount <= 0) {
@@ -516,25 +714,404 @@ export function spendUserCoin(userId: number, amount: number = 1): { success: bo
   }
 
   user.coins = currentCoins - amount
+  pushTransaction(db, {
+    id: `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    userId: user.id,
+    userName: user.name,
+    userUsername: user.username,
+    type: 'spend',
+    coinsDelta: -amount,
+    amountUzs: 0,
+    status: 'completed',
+    note: 'Kontakt ma’lumotlarini ochish',
+    createdAt: new Date().toISOString(),
+  })
   writeDbFile(db)
   return { success: true, coins: user.coins }
 }
 
-// Hamyonga tanga qo'shish (top-up)
-export function topUpUserCoins(userId: number, amount: number): { success: boolean; coins?: number; error?: string } {
-  if (!Number.isInteger(amount) || amount <= 0 || amount > 1000) {
-    return { success: false, error: 'Noto‘g‘ri tanga miqdori (1 dan 1000 gacha bo‘lishi kerak)' }
+// Taklif kontaktini xavfsiz ochish (faqat tanga yechilgandan keyin kontakt qaytariladi)
+export function unlockOfferContact(
+  userId: number,
+  offerId: string
+): {
+  success: boolean
+  coins?: number
+  alreadyUnlocked?: boolean
+  contact?: { contact: string; phone?: string; telegram?: string; whatsapp?: string }
+  error?: string
+} {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) return { success: false, error: 'Foydalanuvchi topilmadi' }
+
+  const offer = db.offers.find((o) => o.id === offerId)
+  if (!offer) return { success: false, error: 'Taklif topilmadi' }
+
+  if (!Array.isArray(user.unlockedOfferIds)) user.unlockedOfferIds = []
+
+  const isOwner = offer.userId === userId
+  const alreadyUnlocked = isOwner || user.unlockedOfferIds.includes(offerId)
+  const contactPayload = {
+    contact: offer.contact || offer.telegram || offer.phone || offer.whatsapp || '',
+    phone: offer.phone,
+    telegram: offer.telegram,
+    whatsapp: offer.whatsapp,
+  }
+
+  if (alreadyUnlocked) {
+    return {
+      success: true,
+      coins: user.coins,
+      alreadyUnlocked: true,
+      contact: contactPayload,
+    }
+  }
+
+  const currentCoins = user.coins || 0
+  if (currentCoins < 1) {
+    return {
+      success: false,
+      coins: currentCoins,
+      error: `Tangalar yetarli emas. Balansingiz: ${currentCoins} ta tanga. Kontaktni ochish uchun kamida 1 ta tanga kerak.`,
+    }
+  }
+
+  user.coins = currentCoins - 1
+  user.unlockedOfferIds.push(offerId)
+  pushTransaction(db, {
+    id: `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    userId: user.id,
+    userName: user.name,
+    userUsername: user.username,
+    type: 'spend',
+    coinsDelta: -1,
+    amountUzs: 0,
+    status: 'completed',
+    note: `${offer.name} (@${offer.username || 'user'}) kontaktini ochish`,
+    createdAt: new Date().toISOString(),
+  })
+  writeDbFile(db)
+
+  return {
+    success: true,
+    coins: user.coins,
+    alreadyUnlocked: false,
+    contact: contactPayload,
+  }
+}
+
+// Taklifdagi shaxsiy kontaktlarni begonalardan yashirish (ma'lumot sizib chiqishining oldini olish)
+export function sanitizeOfferForViewer(
+  offer: OfferItem,
+  viewerUser?: Pick<User, 'id' | 'unlockedOfferIds'> | null
+): OfferItem {
+  const isOwner = Boolean(viewerUser && offer.userId === viewerUser.id)
+  const isUnlocked = Boolean(viewerUser?.unlockedOfferIds?.includes(offer.id))
+  if (isOwner || isUnlocked) {
+    return offer
+  }
+  return {
+    ...offer,
+    contact: '',
+    phone: undefined,
+    telegram: undefined,
+    whatsapp: undefined,
+  }
+}
+
+// 6-xonali Email OTP yaratish va tekshirish
+function hashOtpCode(email: string, purpose: string, code: string): string {
+  const secret = process.env.JWT_SECRET || 'swaply-otp-salt-2026'
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${email.toLowerCase().trim()}:${purpose}:${code}`)
+    .digest('hex')
+}
+
+export function createOtpChallenge(email: string, purpose: 'login' | 'register' | 'reset'): string {
+  const db = ensureDbFile()
+  const cleanEmail = email.toLowerCase().trim()
+  const now = Date.now()
+  if (!Array.isArray(db.otpChallenges)) db.otpChallenges = []
+
+  // Muddati o'tgan yoki eski OTP larni tozalash
+  db.otpChallenges = db.otpChallenges.filter(
+    (c) => c.expiresAt > now && !(c.email === cleanEmail && c.purpose === purpose)
+  )
+
+  const code = String(crypto.randomInt(100000, 1000000))
+  db.otpChallenges.push({
+    email: cleanEmail,
+    purpose,
+    codeHash: hashOtpCode(cleanEmail, purpose, code),
+    expiresAt: now + 5 * 60 * 1000, // 5 daqiqa
+    attempts: 0,
+  })
+  writeDbFile(db)
+  return code
+}
+
+export function verifyOtpChallenge(
+  email: string,
+  code: string,
+  purpose: 'login' | 'register' | 'reset'
+): { valid: boolean; error?: string } {
+  const db = ensureDbFile()
+  const cleanEmail = email.toLowerCase().trim()
+  const cleanCode = (code || '').trim()
+  if (!/^\d{6}$/.test(cleanCode)) {
+    return { valid: false, error: '6 xonali raqamli kodni kiriting' }
+  }
+
+  if (!Array.isArray(db.otpChallenges)) {
+    return { valid: false, error: 'Tasdiqlash kodi topilmadi yoki muddati tugagan' }
+  }
+
+  const idx = db.otpChallenges.findIndex(
+    (c) => c.email === cleanEmail && c.purpose === purpose
+  )
+  if (idx === -1) {
+    return { valid: false, error: 'Tasdiqlash kodi topilmadi. Qaytadan kod yuboring' }
+  }
+
+  const challenge = db.otpChallenges[idx]
+  if (Date.now() > challenge.expiresAt) {
+    db.otpChallenges.splice(idx, 1)
+    writeDbFile(db)
+    return { valid: false, error: 'Kodning amal qilish muddati (5 daqiqa) tugagan. Yangi kod oling' }
+  }
+
+  if (challenge.attempts >= 5) {
+    db.otpChallenges.splice(idx, 1)
+    writeDbFile(db)
+    return { valid: false, error: 'Juda ko‘p noto‘g‘ri urinish. Yangi kod so‘rang' }
+  }
+
+  const expectedBuf = Buffer.from(challenge.codeHash, 'hex')
+  const actualBuf = Buffer.from(hashOtpCode(cleanEmail, purpose, cleanCode), 'hex')
+  const match = expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf)
+
+  if (!match) {
+    challenge.attempts += 1
+    writeDbFile(db)
+    return { valid: false, error: `Tasdiqlash kodi noto‘g‘ri (qolgan urinishlar: ${5 - challenge.attempts})` }
+  }
+
+  // Bir martalik kod: tasdiqlangandan keyin o'chirish
+  db.otpChallenges.splice(idx, 1)
+  writeDbFile(db)
+  return { valid: true }
+}
+
+export function updateUserPassword(userId: number, passwordHash: string): boolean {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) return false
+  user.password = passwordHash
+  writeDbFile(db)
+  return true
+}
+
+// Promo-kodni tekshirish
+export function validatePromoCode(
+  rawCode: string,
+  packId?: CoinPackId
+): { valid: boolean; promo?: PromoCode; bonusCoins: number; error?: string } {
+  const clean = (rawCode || '').trim().toUpperCase()
+  if (!clean) {
+    return { valid: false, bonusCoins: 0, error: 'Promo-kod kiriting' }
   }
 
   const db = ensureDbFile()
-  const user = db.users.find((u) => u.id === userId)
+  const promo = (db.promoCodes || []).find((p) => p.code.toUpperCase() === clean)
+  if (!promo || !promo.active) {
+    return { valid: false, bonusCoins: 0, error: 'Bunday faol promo-kod topilmadi' }
+  }
+  if (promo.usedCount >= promo.maxUses) {
+    return { valid: false, bonusCoins: 0, error: 'Promo-kod limiti tugagan' }
+  }
+
+  const pack = packId ? COIN_PACKS.find((p) => p.id === packId) : undefined
+  const percentBonus = pack ? Math.round((pack.baseCoins * promo.bonusPercent) / 100) : 0
+  const bonusCoins = promo.bonusCoins + percentBonus
+
+  return { valid: true, promo, bonusCoins }
+}
+
+// Hamyonni to'ldirish so'rovini yaratish (2-bosqichli to'lov: darhol tanga qo'shmaydi!)
+export function createTopUpRequest(data: {
+  userId: number
+  packId: CoinPackId
+  provider: 'payme' | 'click' | 'uzum'
+  paymentRef: string
+  promoCode?: string
+}): { success: boolean; transaction?: CoinTransaction; error?: string } {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === data.userId)
   if (!user) {
     return { success: false, error: 'Foydalanuvchi topilmadi' }
   }
 
-  user.coins = (user.coins || 0) + amount
+  const pack = COIN_PACKS.find((p) => p.id === data.packId)
+  if (!pack) {
+    return { success: false, error: 'Noto‘g‘ri tanga paketi tanlandi' }
+  }
+
+  const cleanRef = data.paymentRef.trim()
+  if (cleanRef.length < 4) {
+    return { success: false, error: 'To‘lov cheki raqami yoki telefon/karta oxirgi 4 raqamini kiriting' }
+  }
+
+  let promoBonus = 0
+  let appliedPromo: string | undefined
+  if (data.promoCode && data.promoCode.trim()) {
+    const check = validatePromoCode(data.promoCode, pack.id)
+    if (!check.valid || !check.promo) {
+      return { success: false, error: check.error || 'Promo-kod yaroqsiz' }
+    }
+    promoBonus = check.bonusCoins
+    appliedPromo = check.promo.code
+  }
+
+  const totalCoins = pack.totalCoins + promoBonus
+  const tx: CoinTransaction = {
+    id: `ORD-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
+    userId: user.id,
+    userName: user.name,
+    userUsername: user.username,
+    type: 'topup',
+    packId: pack.id,
+    packTitle: pack.title,
+    coinsDelta: totalCoins,
+    amountUzs: pack.priceUzs,
+    provider: data.provider,
+    paymentRef: cleanRef.slice(0, 64),
+    promoCode: appliedPromo,
+    status: 'pending',
+    note: `${pack.title} paketi (${pack.baseCoins} + ${pack.bonusCoins + promoBonus} bonus tanga)`,
+    createdAt: new Date().toISOString(),
+  }
+
+  pushTransaction(db, tx)
   writeDbFile(db)
-  return { success: true, coins: user.coins }
+  return { success: true, transaction: tx }
+}
+
+export function reviewTopUpTransaction(
+  txId: string,
+  decision: 'completed' | 'rejected',
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; transaction?: CoinTransaction; coins?: number; error?: string } {
+  const db = ensureDbFile()
+  const tx = (db.transactions || []).find((t) => t.id === txId && t.type === 'topup')
+  if (!tx) {
+    return { success: false, error: 'To‘lov so‘rovi topilmadi' }
+  }
+  if (tx.status !== 'pending') {
+    return { success: false, error: 'Bu to‘lov so‘rovi allaqachon ko‘rib chiqilgan' }
+  }
+
+  const user = db.users.find((u) => u.id === tx.userId)
+  if (!user) {
+    return { success: false, error: 'Foydalanuvchi topilmadi' }
+  }
+
+  tx.status = decision
+  tx.reviewedBy = actor.username
+
+  if (decision === 'completed') {
+    user.coins = (user.coins || 0) + tx.coinsDelta
+    if (tx.promoCode) {
+      const promo = (db.promoCodes || []).find((p) => p.code.toUpperCase() === tx.promoCode?.toUpperCase())
+      if (promo) promo.usedCount += 1
+    }
+  }
+
+  pushAdminLog(
+    db,
+    actor,
+    decision === 'completed' ? 'To‘lov tasdiqlandi' : 'To‘lov rad etildi',
+    `@${tx.userUsername}`,
+    `${tx.id} • ${tx.coinsDelta} ◈ • ${tx.amountUzs.toLocaleString()} UZS`
+  )
+
+  writeDbFile(db)
+  return { success: true, transaction: tx, coins: user.coins }
+}
+
+export function getUserTransactions(userId: number): CoinTransaction[] {
+  const db = ensureDbFile()
+  return (db.transactions || []).filter((t) => t.userId === userId).slice(0, 20)
+}
+
+export function getAllTransactions(): CoinTransaction[] {
+  const db = ensureDbFile()
+  return db.transactions || []
+}
+
+export function getAllPromoCodes(): PromoCode[] {
+  const db = ensureDbFile()
+  return db.promoCodes || []
+}
+
+export function createPromoCode(
+  data: { code: string; bonusCoins: number; bonusPercent: number; maxUses: number; description?: string },
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; promo?: PromoCode; error?: string } {
+  const db = ensureDbFile()
+  if (!Array.isArray(db.promoCodes)) db.promoCodes = []
+
+  const cleanCode = data.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '')
+  if (cleanCode.length < 3 || cleanCode.length > 20) {
+    return { success: false, error: 'Promo-kod 3-20 ta lotin harf/raqamdan iborat bo‘lishi kerak' }
+  }
+  if (db.promoCodes.some((p) => p.code.toUpperCase() === cleanCode)) {
+    return { success: false, error: 'Bu promo-kod allaqachon mavjud' }
+  }
+
+  const promo: PromoCode = {
+    code: cleanCode,
+    bonusCoins: Math.max(0, Math.min(100, Math.floor(data.bonusCoins || 0))),
+    bonusPercent: Math.max(0, Math.min(100, Math.floor(data.bonusPercent || 0))),
+    maxUses: Math.max(1, Math.min(100000, Math.floor(data.maxUses || 100))),
+    usedCount: 0,
+    active: true,
+    description: data.description?.trim().slice(0, 120) || '',
+    createdAt: new Date().toISOString(),
+  }
+
+  db.promoCodes.unshift(promo)
+  pushAdminLog(db, actor, 'Promo-kod yaratildi', cleanCode, `+${promo.bonusCoins} ◈ / +${promo.bonusPercent}%`)
+  writeDbFile(db)
+  return { success: true, promo }
+}
+
+export function togglePromoCode(
+  code: string,
+  actor: { id: number; username: string; role?: UserRole }
+): PromoCode | null {
+  const db = ensureDbFile()
+  const promo = (db.promoCodes || []).find((p) => p.code.toUpperCase() === code.toUpperCase())
+  if (!promo) return null
+  promo.active = !promo.active
+  pushAdminLog(db, actor, promo.active ? 'Promo-kod faollashtirildi' : 'Promo-kod to‘xtatildi', promo.code)
+  writeDbFile(db)
+  return promo
+}
+
+export function deletePromoCode(
+  code: string,
+  actor: { id: number; username: string; role?: UserRole }
+): boolean {
+  const db = ensureDbFile()
+  if (!Array.isArray(db.promoCodes)) return false
+  const idx = db.promoCodes.findIndex((p) => p.code.toUpperCase() === code.toUpperCase())
+  if (idx === -1) return false
+  db.promoCodes.splice(idx, 1)
+  pushAdminLog(db, actor, 'Promo-kod o‘chirildi', code.toUpperCase())
+  writeDbFile(db)
+  return true
 }
 
 function indexOffersByUser(offers: OfferItem[]) {
@@ -575,29 +1152,31 @@ export function getAllPublicUsers(): PublicUser[] {
   const db = ensureDbFile()
   const getUserOffers = indexOffersByUser(db.offers)
 
-  return db.users.map((u) => {
-    const userOffers = getUserOffers(u)
-    const skillsTeach = userOffers.map((o) => o.canTeach).filter(Boolean)
-    const skillsLearn = userOffers.map((o) => o.wantsToLearn).filter(Boolean)
-    const location = userOffers.find((o) => o.location)?.location || 'Toshkent'
+  return db.users
+    .filter((u) => !u.banned)
+    .map((u) => {
+      const userOffers = getUserOffers(u)
+      const skillsTeach = userOffers.map((o) => o.canTeach).filter(Boolean)
+      const skillsLearn = userOffers.map((o) => o.wantsToLearn).filter(Boolean)
+      const location = userOffers.find((o) => o.location)?.location || 'Toshkent'
 
-    return {
-      id: u.id,
-      name: u.name,
-      username: u.username || `user_${u.id}`,
-      avatar: u.avatar || '',
-      bio: u.bio || '',
-      gender: u.gender,
-      role: u.role,
-      rating: '5.0',
-      verified: true,
-      offersCount: userOffers.length,
-      skillsTeach,
-      skillsLearn,
-      location,
-      createdAt: u.createdAt,
-    }
-  })
+      return {
+        id: u.id,
+        name: u.name,
+        username: u.username || `user_${u.id}`,
+        avatar: u.avatar || '',
+        bio: u.bio || '',
+        gender: u.gender,
+        role: u.role,
+        rating: '5.0',
+        verified: Boolean(u.verified || u.role === 'admin' || u.role === 'supporter'),
+        offersCount: userOffers.length,
+        skillsTeach,
+        skillsLearn,
+        location,
+        createdAt: u.createdAt,
+      }
+    })
 }
 
 // Foydalanuvchilarni username va ism orqali qidirish (Header va Search uchun)
@@ -624,7 +1203,8 @@ export function searchUsers(query: string, genderFilter?: string): PublicUser[] 
 // Offer amallari
 export function getAllOffers(genderFilter?: string, locationFilter?: string): OfferItem[] {
   const db = ensureDbFile()
-  let offers = db.offers
+  const bannedUserIds = new Set(db.users.filter((u) => u.banned).map((u) => u.id))
+  let offers = db.offers.filter((o) => !(o.userId && bannedUserIds.has(o.userId)))
 
   if (genderFilter && genderFilter !== 'all') {
     offers = offers.filter((o) => o.gender === genderFilter)
@@ -675,6 +1255,18 @@ export function claimDailyReward(userId: number): { success: boolean; coins?: nu
 
   user.coins = (user.coins || 0) + 1
   user.lastClaimDate = today
+  pushTransaction(db, {
+    id: `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    userId: user.id,
+    userName: user.name,
+    userUsername: user.username,
+    type: 'daily_bonus',
+    coinsDelta: 1,
+    amountUzs: 0,
+    status: 'completed',
+    note: 'Kunlik bepul bonus',
+    createdAt: new Date().toISOString(),
+  })
   writeDbFile(db)
 
   return { success: true, coins: user.coins }
@@ -713,12 +1305,19 @@ export function getAllReports(): ReportItem[] {
   return db.reports || []
 }
 
-export function updateReportStatus(reportId: string, status: 'pending' | 'reviewed' | 'resolved'): boolean {
+export function updateReportStatus(
+  reportId: string,
+  status: 'pending' | 'reviewed' | 'resolved',
+  actor?: { id: number; username: string; role?: UserRole }
+): boolean {
   const db = ensureDbFile()
   if (!Array.isArray(db.reports)) return false
   const rep = db.reports.find((r) => r.id === reportId)
   if (!rep) return false
   rep.status = status
+  if (actor) {
+    pushAdminLog(db, actor, 'Shikoyat holati o‘zgartirildi', rep.id, `Status: ${status}`)
+  }
   writeDbFile(db)
   return true
 }
@@ -729,14 +1328,23 @@ export function getAdminStats() {
   const users = db.users || []
   const offers = db.offers || []
   const reports = db.reports || []
+  const transactions = db.transactions || []
 
   let maleCount = 0
   let femaleCount = 0
   let otherCount = 0
+  let adminsCount = 0
+  let supportersCount = 0
+  let bannedCount = 0
+
   for (const u of users) {
     if (u.gender === 'male') maleCount++
     else if (u.gender === 'female') femaleCount++
     else otherCount++
+
+    if (u.role === 'admin' || u.username === 'amir') adminsCount++
+    else if (u.role === 'supporter') supportersCount++
+    if (u.banned) bannedCount++
   }
 
   let pendingReports = 0
@@ -744,11 +1352,25 @@ export function getAdminStats() {
     if (r.status === 'pending') pendingReports++
   }
 
+  let pendingTopups = 0
+  let totalRevenueUzs = 0
+  for (const tx of transactions) {
+    if (tx.type === 'topup') {
+      if (tx.status === 'pending') pendingTopups++
+      if (tx.status === 'completed') totalRevenueUzs += tx.amountUzs || 0
+    }
+  }
+
   return {
     totalUsers: users.length,
     totalOffers: offers.length,
     totalReports: reports.length,
     pendingReports,
+    pendingTopups,
+    totalRevenueUzs,
+    adminsCount,
+    supportersCount,
+    bannedCount,
     genderStats: {
       male: maleCount,
       female: femaleCount,
@@ -798,7 +1420,9 @@ export function getAdminUsersList(searchQuery?: string) {
         avatar: u.avatar,
         bio: u.bio,
         gender: u.gender,
-        role: u.role,
+        role: u.role || 'user',
+        verified: Boolean(u.verified || u.role === 'admin' || u.role === 'supporter'),
+        banned: Boolean(u.banned),
         coins: u.coins,
         phone: u.phone,
         telegram: u.telegram,
@@ -811,20 +1435,160 @@ export function getAdminUsersList(searchQuery?: string) {
     })
 }
 
-export function adminDeleteOffer(offerId: string): boolean {
+export function createUserByAdmin(
+  data: {
+    name: string
+    username: string
+    email: string
+    passwordHash: string
+    role: UserRole
+    gender?: 'male' | 'female' | 'other'
+    coins?: number
+  },
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; user?: User; error?: string } {
+  const db = ensureDbFile()
+  const cleanUsername = data.username.toLowerCase().trim().replace(/^@/, '')
+  const cleanEmail = data.email.toLowerCase().trim()
+
+  if (!/^[a-z0-9._]{3,24}$/.test(cleanUsername)) {
+    return { success: false, error: 'Username 3-24 ta lotin harf/raqam/._ dan iborat bo‘lishi kerak' }
+  }
+  if (db.users.some((u) => u.username.toLowerCase() === cleanUsername)) {
+    return { success: false, error: 'Bu username allaqachon band' }
+  }
+  if (db.users.some((u) => u.email.toLowerCase() === cleanEmail)) {
+    return { success: false, error: 'Bu email allaqachon ro‘yxatdan o‘tgan' }
+  }
+
+  const nextId = db.users.length > 0 ? Math.max(...db.users.map((u) => u.id)) + 1 : 1
+  const newUser: User = {
+    id: nextId,
+    name: data.name.trim(),
+    username: cleanUsername,
+    email: cleanEmail,
+    password: data.passwordHash,
+    gender: data.gender || 'other',
+    role: data.role,
+    verified: data.role === 'admin' || data.role === 'supporter',
+    banned: false,
+    avatar: '',
+    bio: data.role === 'supporter' ? 'Swaply qo‘llab-quvvatlash xizmati' : '',
+    coins: Math.max(0, Math.min(10000, Math.floor(data.coins ?? 5))),
+    createdAt: new Date().toISOString(),
+  }
+
+  db.users.push(newUser)
+  pushAdminLog(db, actor, 'Yangi foydalanuvchi/xodim qo‘shildi', `@${cleanUsername}`, `Rol: ${data.role}`)
+  writeDbFile(db)
+  return { success: true, user: newUser }
+}
+
+export function updateUserRole(
+  userId: number,
+  role: UserRole,
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; error?: string } {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) return { success: false, error: 'Foydalanuvchi topilmadi' }
+  if (user.username === 'amir' && role !== 'admin') {
+    return { success: false, error: 'Bosh admin (@amir) rolini pasaytirib bo‘lmaydi' }
+  }
+  user.role = role
+  if (role === 'admin' || role === 'supporter') user.verified = true
+  pushAdminLog(db, actor, 'Foydalanuvchi roli o‘zgartirildi', `@${user.username}`, `Yangi rol: ${role}`)
+  writeDbFile(db)
+  return { success: true }
+}
+
+export function toggleUserVerified(
+  userId: number,
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; verified?: boolean; error?: string } {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) return { success: false, error: 'Foydalanuvchi topilmadi' }
+  user.verified = !user.verified
+  db.offers.forEach((o) => {
+    if (o.userId === userId) o.verified = user.verified
+  })
+  pushAdminLog(
+    db,
+    actor,
+    user.verified ? 'Foydalanuvchi tasdiqlandi' : 'Tasdiqlash bekor qilindi',
+    `@${user.username}`
+  )
+  writeDbFile(db)
+  return { success: true, verified: user.verified }
+}
+
+export function toggleUserBanned(
+  userId: number,
+  actor: { id: number; username: string; role?: UserRole }
+): { success: boolean; banned?: boolean; error?: string } {
+  const db = ensureDbFile()
+  const user = db.users.find((u) => u.id === userId)
+  if (!user) return { success: false, error: 'Foydalanuvchi topilmadi' }
+  if (user.username === 'amir' || user.id === actor.id) {
+    return { success: false, error: 'O‘zingizni yoki bosh adminni bloklab bo‘lmaydi' }
+  }
+  user.banned = !user.banned
+  pushAdminLog(
+    db,
+    actor,
+    user.banned ? 'Foydalanuvchi bloklandi' : 'Foydalanuvchi blokdan chiqarildi',
+    `@${user.username}`
+  )
+  writeDbFile(db)
+  return { success: true, banned: user.banned }
+}
+
+export function adminDeleteOffer(
+  offerId: string,
+  actor?: { id: number; username: string; role?: UserRole }
+): boolean {
   const db = ensureDbFile()
   const index = db.offers.findIndex((o) => o.id === offerId)
   if (index === -1) return false
-  db.offers.splice(index, 1)
+  const [removed] = db.offers.splice(index, 1)
+  if (actor) {
+    pushAdminLog(db, actor, 'Taklif o‘chirildi', removed.id, `${removed.canTeach} (@${removed.username || 'noma’lum'})`)
+  }
   writeDbFile(db)
   return true
 }
 
-export function adminAdjustUserCoins(userId: number, delta: number): number | null {
+export function adminAdjustUserCoins(
+  userId: number,
+  delta: number,
+  actor?: { id: number; username: string; role?: UserRole }
+): number | null {
   const db = ensureDbFile()
   const user = db.users.find((u) => u.id === userId)
   if (!user) return null
   user.coins = Math.max(0, (user.coins || 0) + delta)
+  pushTransaction(db, {
+    id: `tx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    userId: user.id,
+    userName: user.name,
+    userUsername: user.username,
+    type: 'admin_adjust',
+    coinsDelta: delta,
+    amountUzs: 0,
+    status: 'completed',
+    note: actor ? `Admin (@${actor.username}) tomonidan tuzatish` : 'Admin tuzatishi',
+    reviewedBy: actor?.username,
+    createdAt: new Date().toISOString(),
+  })
+  if (actor) {
+    pushAdminLog(db, actor, 'Tanga balansi tahrirlandi', `@${user.username}`, `${delta > 0 ? `+${delta}` : delta} ◈`)
+  }
   writeDbFile(db)
   return user.coins
+}
+
+export function getAdminLogs(): AdminLog[] {
+  const db = ensureDbFile()
+  return (db.adminLogs || []).slice(0, 100)
 }

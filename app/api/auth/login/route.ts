@@ -3,9 +3,18 @@ import bcrypt from 'bcryptjs'
 import { findUserByEmailOrUsername } from '@/lib/db'
 import { signToken } from '@/lib/auth'
 import { parseJsonBody, sanitizeUser } from '@/lib/api-helpers'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request)
+    const rl = checkRateLimit(`login:${ip}`, 15, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: `Juda ko‘p urinish. ${rl.retryAfterSec} soniyadan keyin qayta urinib ko‘ring` },
+        { status: 429 }
+      )
+    }
     const parsed = await parseJsonBody<{ email?: unknown; password?: unknown }>(request)
     if (parsed.error) return parsed.error
 
@@ -32,6 +41,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Email/username yoki parol noto‘g‘ri' },
         { status: 401 }
+      )
+    }
+
+    if (user.banned) {
+      return NextResponse.json(
+        { error: 'Sizning hisobingiz bloklangan. Qo‘llab-quvvatlash xizmatiga murojaat qiling' },
+        { status: 403 }
       )
     }
 

@@ -54,16 +54,19 @@ export type AuthUser = {
   avatar?: string
   bio?: string
   gender?: Gender
-  role?: 'admin' | 'user'
+  role?: 'admin' | 'supporter' | 'user'
+  verified?: boolean
+  banned?: boolean
   coins?: number
   phone?: string
   telegram?: string
   whatsapp?: string
+  unlockedOfferIds?: string[]
   lastClaimDate?: string
   createdAt?: string
 }
 
-// ---------------- AUTH MODAL (LOGIN & REGISTER) ----------------
+// ---------------- AUTH MODAL (LOGIN & REGISTER WITH 6-DIGIT EMAIL OTP) ----------------
 export function AuthModal({
   onClose,
   onDone,
@@ -75,7 +78,16 @@ export function AuthModal({
   initialMode?: 'login' | 'register'
   authReason?: string
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>(initialMode)
+  const [mode, setMode] = useState<'login' | 'register' | 'reset'>(initialMode)
+  const [loginMethod, setLoginMethod] = useState<'otp' | 'password'>('otp')
+  const [otpStep, setOtpStep] = useState(false)
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', ''])
+  const [otpInfoMsg, setOtpInfoMsg] = useState('')
+  const [devOtpHint, setDevOtpHint] = useState('')
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('')
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([])
+
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [gender, setGender] = useState<'male' | 'female'>('male')
@@ -85,6 +97,12 @@ export function AuthModal({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const t = window.setTimeout(() => setResendCooldown((c) => (c > 0 ? c - 1 : 0)), 1000)
+    return () => window.clearTimeout(t)
+  }, [resendCooldown])
 
   // Username qoidalarini jonli tekshirish (debounced)
   useEffect(() => {
@@ -98,18 +116,14 @@ export function AuthModal({
       setUsernameStatus({ checking: false, available: false, error: 'Kamida 3 ta belgi' })
       return
     }
-
-    // Nuqta yoki chiziqcha oldida yoki orqasida kelmasligi kerak
     if (clean.startsWith('.') || clean.startsWith('_')) {
       setUsernameStatus({ checking: false, available: false, error: 'Boshida nuqta yoki chiziqcha bo‘lishi mumkin emas' })
       return
     }
-
     if (clean.endsWith('.') || clean.endsWith('_')) {
       setUsernameStatus({ checking: false, available: false, error: 'Oxirida nuqta yoki chiziqcha bo‘lishi mumkin emas' })
       return
     }
-
     if (/[._]{2,}/.test(clean)) {
       setUsernameStatus({ checking: false, available: false, error: 'Ketma-ket nuqta yoki chiziqcha mumkin emas' })
       return
@@ -133,69 +147,257 @@ export function AuthModal({
     return () => clearTimeout(timer)
   }, [username, mode])
 
+  function resetOtpState() {
+    setOtpStep(false)
+    setOtpDigits(['', '', '', '', '', ''])
+    setOtpInfoMsg('')
+    setDevOtpHint('')
+    setResetSuccessMsg('')
+    setError('')
+  }
+
+  function handleOtpChange(index: number, raw: string) {
+    const clean = raw.replace(/\D/g, '')
+    if (!clean) {
+      const next = [...otpDigits]
+      next[index] = ''
+      setOtpDigits(next)
+      return
+    }
+    if (clean.length > 1) {
+      const chars = clean.slice(0, 6).split('')
+      const next = ['', '', '', '', '', '']
+      chars.forEach((ch, idx) => {
+        next[idx] = ch
+      })
+      setOtpDigits(next)
+      const focusIdx = Math.min(chars.length, 5)
+      otpRefs.current[focusIdx]?.focus()
+      return
+    }
+    const next = [...otpDigits]
+    next[index] = clean
+    setOtpDigits(next)
+    if (index < 5) {
+      otpRefs.current[index + 1]?.focus()
+    }
+  }
+
+  function handleOtpKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus()
+    }
+  }
+
+  async function requestOtp(purpose: 'login' | 'register' | 'reset') {
+    setError('')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          email: email.trim(),
+          purpose,
+          ...(purpose === 'register' ? { username: username.trim().replace(/^@/, '') } : {}),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Kod yuborishda xatolik')
+        return false
+      }
+      setOtpStep(true)
+      setOtpDigits(['', '', '', '', '', ''])
+      setOtpInfoMsg(data.message || `${email.trim()} ga 6 xonali kod yuborildi`)
+      setDevOtpHint(data.devOtp ? String(data.devOtp) : '')
+      setResendCooldown(60)
+      window.setTimeout(() => otpRefs.current[0]?.focus(), 80)
+      return true
+    } catch {
+      setError('Serverga ulanishda xatolik yuz berdi')
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
 
-    if (mode === 'register') {
+    if (mode === 'login' && loginMethod === 'password') {
+      if (password.length < 6) {
+        setError('Parol kamida 6 ta belgidan iborat bo‘lishi kerak')
+        return
+      }
+      setLoading(true)
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setError(data.error || 'Kirishda xatolik')
+          return
+        }
+        localStorage.setItem('swaply_token', data.token)
+        localStorage.setItem('swaply_user', JSON.stringify(data.user))
+        onDone(data.user, data.token)
+      } catch {
+        setError('Serverga ulanishda xatolik yuz berdi')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (mode === 'login' && loginMethod === 'otp') {
+      if (!otpStep) {
+        await requestOtp('login')
+        return
+      }
+      const code = otpDigits.join('')
+      if (!/^\d{6}$/.test(code)) {
+        setError('6 xonali raqamli tasdiqlash kodini to‘liq kiriting')
+        return
+      }
+      setLoading(true)
+      try {
+        const res = await fetch('/api/auth/otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'verify',
+            purpose: 'login',
+            email: email.trim(),
+            code,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setError(data.error || 'Kod noto‘g‘ri')
+          return
+        }
+        localStorage.setItem('swaply_token', data.token)
+        localStorage.setItem('swaply_user', JSON.stringify(data.user))
+        onDone(data.user, data.token)
+      } catch {
+        setError('Serverga ulanishda xatolik yuz berdi')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (mode === 'reset') {
+      if (!otpStep) {
+        await requestOtp('reset')
+        return
+      }
+      const code = otpDigits.join('')
+      if (!/^\d{6}$/.test(code)) {
+        setError('Emailingizga yuborilgan 6 xonali kodni kiriting')
+        return
+      }
+      if (password.length < 6) {
+        setError('Yangi parol kamida 6 ta belgidan iborat bo‘lishi kerak')
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Kiritilgan parollar bir-biriga mos kelmaydi')
+        return
+      }
+
+      setLoading(true)
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: email.trim(),
+            otpCode: code,
+            newPassword: password,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setError(data.error || 'Parolni tiklashda xatolik yuz berdi')
+          return
+        }
+        setPassword('')
+        setConfirmPassword('')
+        setOtpStep(false)
+        setOtpDigits(['', '', '', '', '', ''])
+        setDevOtpHint('')
+        setMode('login')
+        setLoginMethod('password')
+        setResetSuccessMsg(data.message || 'Parol yangilandi! Endi yangi parol bilan kiring.')
+      } catch {
+        setError('Serverga ulanishda xatolik yuz berdi')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    // Register flow (with 6-digit email OTP)
+    if (!otpStep) {
       const cleanUsername = username.trim().replace(/^@/, '')
       if (cleanUsername.length < 3) {
         setError('Username kamida 3 ta belgidan iborat bo‘lishi kerak')
         return
       }
-
       if (cleanUsername.startsWith('.') || cleanUsername.startsWith('_') || cleanUsername.endsWith('.') || cleanUsername.endsWith('_')) {
         setError('Username boshida yoki oxirida nuqta (.) yoki tagchiziq (_) bo‘lishi mumkin emas!')
         return
       }
-
       if (usernameStatus && !usernameStatus.available) {
         setError(usernameStatus.error || 'Bu username band, boshqasini tanlang')
         return
       }
-
+      if (password.length < 6) {
+        setError('Parol kamida 6 ta belgidan iborat bo‘lishi kerak')
+        return
+      }
       if (password !== confirmPassword) {
         setError('Kiritilgan parollar bir-biriga mos kelmaydi')
         return
       }
+      await requestOtp('register')
+      return
     }
 
-    if (password.length < 6) {
-      setError('Parol kamida 6 ta belgidan iborat bo‘lishi kerak')
+    const code = otpDigits.join('')
+    if (!/^\d{6}$/.test(code)) {
+      setError('Emailingizga yuborilgan 6 xonali kodni kiriting')
       return
     }
 
     setLoading(true)
-
     try {
-      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login'
-      const payload =
-        mode === 'register'
-          ? {
-              name: name.trim(),
-              username: username.trim().replace(/^@/, ''),
-              gender,
-              email: email.trim(),
-              password,
-            }
-          : { email: email.trim(), password }
-
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          name: name.trim(),
+          username: username.trim().replace(/^@/, ''),
+          gender,
+          email: email.trim(),
+          password,
+          otpCode: code,
+        }),
       })
-
       const data = await response.json()
-
       if (!response.ok) {
         setError(data.error || 'Xatolik yuz berdi')
         return
       }
-
       localStorage.setItem('swaply_token', data.token)
       localStorage.setItem('swaply_user', JSON.stringify(data.user))
-
       onDone(data.user, data.token)
     } catch {
       setError('Serverga ulanishda xatolik yuz berdi')
@@ -206,10 +408,24 @@ export function AuthModal({
 
   return (
     <ModalFrame
-      description={mode === 'login' ? 'Hisobingizga kiring va bilim almashishni davom eting' : 'Swaply hamjamiyatiga qo‘shiling va yangi ko‘nikmalarni kashf qiling'}
+      description={
+        otpStep
+          ? 'Emailingizga yuborilgan 6 xonali tasdiqlash kodini kiriting'
+          : mode === 'reset'
+            ? 'Email manzilingizni kiriting — parolni tiklash uchun 6 xonali kod yuboramiz'
+            : mode === 'login'
+              ? 'Email orqali 6 xonali kod bilan yoki parol bilan hisobingizga kiring'
+              : 'Swaply hamjamiyatiga qo‘shiling va +5 bepul tanga oling'
+      }
       onClose={onClose}
       size="narrow"
-      title={mode === 'login' ? 'Tizimga kirish' : 'Ro‘yxatdan o‘tish'}
+      title={
+        mode === 'reset'
+          ? 'Parolni tiklash'
+          : mode === 'login'
+            ? 'Tizimga kirish'
+            : 'Ro‘yxatdan o‘tish'
+      }
     >
       {authReason && (
         <div className="auth-reason-banner">
@@ -224,7 +440,7 @@ export function AuthModal({
           className={`auth-segment-btn ${mode === 'login' ? 'active' : ''}`}
           onClick={() => {
             setMode('login')
-            setError('')
+            resetOtpState()
           }}
           type="button"
         >
@@ -235,7 +451,7 @@ export function AuthModal({
           className={`auth-segment-btn ${mode === 'register' ? 'active' : ''}`}
           onClick={() => {
             setMode('register')
-            setError('')
+            resetOtpState()
           }}
           type="button"
         >
@@ -244,170 +460,364 @@ export function AuthModal({
         </button>
       </div>
 
+      {mode === 'login' && !otpStep && (
+        <div className="auth-method-toggle">
+          <button
+            className={`auth-method-pill ${loginMethod === 'otp' ? 'active' : ''}`}
+            onClick={() => {
+              setLoginMethod('otp')
+              setError('')
+            }}
+            type="button"
+          >
+            Email (6 xonali kod)
+          </button>
+          <button
+            className={`auth-method-pill ${loginMethod === 'password' ? 'active' : ''}`}
+            onClick={() => {
+              setLoginMethod('password')
+              setError('')
+            }}
+            type="button"
+          >
+            Parol bilan
+          </button>
+        </div>
+      )}
+
+      {resetSuccessMsg && <div className="wallet-success-banner" style={{ marginTop: 10, marginBottom: 0 }}>✓ {resetSuccessMsg}</div>}
       {error && <div className="auth-error">{error}</div>}
 
       <form className="modal-form modern-auth-form" onSubmit={handleSubmit}>
-        {mode === 'register' && (
+        {otpStep ? (
+          <div className="otp-verify-step">
+            <div className="otp-sent-banner">
+              <Mail size={15} />
+              <span>{otpInfoMsg}</span>
+            </div>
+
+            {devOtpHint && (
+              <div className="otp-dev-hint">
+                Lokal test kodi (SMTP sozlanmagan): <strong>{devOtpHint}</strong>
+              </div>
+            )}
+
+            <label className="form-label" style={{ textAlign: 'center', marginTop: 8 }}>
+              6 xonali tasdiqlash kodi
+            </label>
+            <div className="otp-inputs otp-inputs-6">
+              {otpDigits.map((digit, idx) => (
+                <input
+                  aria-label={`Kod raqami ${idx + 1}`}
+                  inputMode="numeric"
+                  key={idx}
+                  maxLength={6}
+                  onChange={(e) => handleOtpChange(idx, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                  ref={(el) => {
+                    otpRefs.current[idx] = el
+                  }}
+                  type="text"
+                  value={digit}
+                />
+              ))}
+            </div>
+
+            <div className="otp-actions-row">
+              <button
+                className="otp-link-btn"
+                onClick={() => resetOtpState()}
+                type="button"
+              >
+                ← Emailni o‘zgartirish
+              </button>
+              <button
+                className="otp-link-btn"
+                disabled={resendCooldown > 0 || loading}
+                onClick={() => requestOtp(mode)}
+                type="button"
+              >
+                {resendCooldown > 0 ? `Qayta yuborish (${resendCooldown}s)` : 'Kodni qayta yuborish'}
+              </button>
+            </div>
+
+            {mode === 'reset' && (
+              <>
+                <div className="form-group-modern" style={{ marginTop: 6 }}>
+                  <label className="form-label" htmlFor="reset-new-password">
+                    Yangi parol *
+                  </label>
+                  <input
+                    className="form-control"
+                    id="reset-new-password"
+                    minLength={6}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Kamida 6 ta belgi"
+                    required
+                    type="password"
+                    value={password}
+                  />
+                </div>
+                <div className="form-group-modern">
+                  <label className="form-label" htmlFor="reset-confirm-password">
+                    Yangi parolni tasdiqlang *
+                  </label>
+                  <input
+                    className="form-control"
+                    id="reset-confirm-password"
+                    minLength={6}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Parolni qayta kiriting"
+                    required
+                    type="password"
+                    value={confirmPassword}
+                  />
+                </div>
+              </>
+            )}
+
+            <button className="button button-primary auth-submit-btn" disabled={loading} type="submit">
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={15} /> Tekshirilmoqda...
+                </>
+              ) : mode === 'reset' ? (
+                <>
+                  Parolni yangilash <ArrowUpRight size={15} />
+                </>
+              ) : mode === 'login' ? (
+                <>
+                  Tasdiqlash va kirish <ArrowUpRight size={15} />
+                </>
+              ) : (
+                <>
+                  Tasdiqlash (+5 tanga) <ArrowUpRight size={15} />
+                </>
+              )}
+            </button>
+          </div>
+        ) : (
           <>
+            {mode === 'register' && (
+              <>
+                <div className="form-group-modern">
+                  <label className="form-label" htmlFor="auth-name">
+                    Ism va Familiya *
+                  </label>
+                  <div className="input-with-icon">
+                    <User className="field-icon" size={15} />
+                    <input
+                      autoFocus
+                      className="form-control"
+                      id="auth-name"
+                      maxLength={48}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Masalan: Dilshod Karimov"
+                      required
+                      type="text"
+                      value={name}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group-modern">
+                  <div className="label-with-hint">
+                    <label className="form-label" htmlFor="auth-username">
+                      Platformadagi @username *
+                    </label>
+                    <small className="hint-text">faqat a-z, 0-9, . va _</small>
+                  </div>
+                  <div className="username-field-wrap">
+                    <span className="username-prefix">@</span>
+                    <input
+                      className={`form-control username-input ${
+                        usernameStatus?.available === true
+                          ? 'input-valid'
+                          : usernameStatus?.available === false
+                          ? 'input-invalid'
+                          : ''
+                      }`}
+                      id="auth-username"
+                      maxLength={24}
+                      onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
+                      placeholder="dilshod.uz"
+                      required
+                      type="text"
+                      value={username}
+                    />
+                    {usernameStatus?.checking && (
+                      <span className="username-status-icon">
+                        <Loader2 className="animate-spin" size={14} />
+                      </span>
+                    )}
+                    {usernameStatus?.available === true && (
+                      <span className="username-status-icon status-ok" title="Username bo‘sh">
+                        <Check size={14} />
+                      </span>
+                    )}
+                    {usernameStatus?.available === false && (
+                      <span className="username-status-icon status-bad" title={usernameStatus.error}>
+                        <X size={14} />
+                      </span>
+                    )}
+                  </div>
+                  {usernameStatus?.error && <small className="username-hint-error">⚠️ {usernameStatus.error}</small>}
+                  {usernameStatus?.available && <small className="username-hint-ok">✓ Bu username mavjud va bo‘sh</small>}
+                </div>
+
+                <div className="form-group-modern">
+                  <label className="form-label">Jinsingiz *</label>
+                  <div className="gender-selector-row">
+                    <button
+                      className={`gender-select-btn ${gender === 'male' ? 'active' : ''}`}
+                      onClick={() => setGender('male')}
+                      type="button"
+                    >
+                      <span className="gender-icon">👨</span>
+                      <span>Erkak</span>
+                    </button>
+                    <button
+                      className={`gender-select-btn ${gender === 'female' ? 'active' : ''}`}
+                      onClick={() => setGender('female')}
+                      type="button"
+                    >
+                      <span className="gender-icon">👩</span>
+                      <span>Ayol</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="form-group-modern">
-              <label className="form-label" htmlFor="auth-name">
-                Ism va Familiya *
+              <label className="form-label" htmlFor="auth-email">
+                {mode === 'login' && loginMethod === 'password'
+                  ? 'Email manzil yoki @username *'
+                  : 'Email manzil *'}
               </label>
               <div className="input-with-icon">
-                <User className="field-icon" size={15} />
+                <Mail className="field-icon" size={15} />
                 <input
-                  autoFocus
+                  autoFocus={mode === 'login'}
                   className="form-control"
-                  id="auth-name"
-                  maxLength={48}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Masalan: Amir Shukhratov"
+                  id="auth-email"
+                  maxLength={100}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={
+                    mode === 'login' && loginMethod === 'password'
+                      ? 'email@example.com yoki @username'
+                      : 'email@example.com'
+                  }
                   required
-                  type="text"
-                  value={name}
+                  type={mode === 'login' && loginMethod === 'password' ? 'text' : 'email'}
+                  value={email}
                 />
               </div>
             </div>
 
-            <div className="form-group-modern">
-              <div className="label-with-hint">
-                <label className="form-label" htmlFor="auth-username">
-                  Platformadagi @username *
-                </label>
-                <small className="hint-text">faqat a-z, 0-9, . va _</small>
-              </div>
-              <div className="username-field-wrap">
-                <span className="username-prefix">@</span>
+            {(mode === 'register' || (mode === 'login' && loginMethod === 'password')) && (
+              <div className="form-group-modern">
+                <div className="label-with-hint">
+                  <label className="form-label" htmlFor="auth-password">
+                    Parol *
+                  </label>
+                  {mode === 'login' && loginMethod === 'password' && (
+                    <button
+                      className="otp-link-btn"
+                      onClick={() => {
+                        setMode('reset')
+                        setPassword('')
+                        setConfirmPassword('')
+                        resetOtpState()
+                      }}
+                      type="button"
+                    >
+                      Parolni unutdingizmi?
+                    </button>
+                  )}
+                </div>
                 <input
-                  className={`form-control username-input ${
-                    usernameStatus?.available === true
-                      ? 'input-valid'
-                      : usernameStatus?.available === false
-                      ? 'input-invalid'
-                      : ''
-                  }`}
-                  id="auth-username"
-                  maxLength={24}
-                  onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
-                  placeholder="amir.dev"
+                  className="form-control"
+                  id="auth-password"
+                  minLength={6}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Kamida 6 ta belgi"
                   required
-                  type="text"
-                  value={username}
+                  type="password"
+                  value={password}
                 />
-                {usernameStatus?.checking && (
-                  <span className="username-status-icon">
-                    <Loader2 className="animate-spin" size={14} />
-                  </span>
-                )}
-                {usernameStatus?.available === true && (
-                  <span className="username-status-icon status-ok" title="Username bo‘sh">
-                    <Check size={14} />
-                  </span>
-                )}
-                {usernameStatus?.available === false && (
-                  <span className="username-status-icon status-bad" title={usernameStatus.error}>
-                    <X size={14} />
-                  </span>
-                )}
               </div>
-              {usernameStatus?.error && <small className="username-hint-error">⚠️ {usernameStatus.error}</small>}
-              {usernameStatus?.available && <small className="username-hint-ok">✓ Bu username mavjud va bo‘sh</small>}
-            </div>
+            )}
 
-            {/* Jins tanlash (Gender selection) */}
-            <div className="form-group-modern">
-              <label className="form-label">Jinsingiz *</label>
-              <div className="gender-selector-row">
-                <button
-                  className={`gender-select-btn ${gender === 'male' ? 'active' : ''}`}
-                  onClick={() => setGender('male')}
-                  type="button"
-                >
-                  <span className="gender-icon">👨</span>
-                  <span>Erkak</span>
-                </button>
-                <button
-                  className={`gender-select-btn ${gender === 'female' ? 'active' : ''}`}
-                  onClick={() => setGender('female')}
-                  type="button"
-                >
-                  <span className="gender-icon">👩</span>
-                  <span>Ayol</span>
-                </button>
+            {mode === 'register' && (
+              <div className="form-group-modern">
+                <label className="form-label" htmlFor="auth-confirm-password">
+                  Parolni tasdiqlang *
+                </label>
+                <input
+                  className="form-control"
+                  id="auth-confirm-password"
+                  minLength={6}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Parolni qayta kiriting"
+                  required
+                  type="password"
+                  value={confirmPassword}
+                />
               </div>
-            </div>
+            )}
+
+            <button className="button button-primary auth-submit-btn" disabled={loading} type="submit">
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={15} /> Kutilmoqda...
+                </>
+              ) : mode === 'reset' ? (
+                <>
+                  Tiklash kodini yuborish <ArrowUpRight size={15} />
+                </>
+              ) : mode === 'login' && loginMethod === 'password' ? (
+                <>
+                  Kirish <ArrowUpRight size={15} />
+                </>
+              ) : (
+                <>
+                  Emailga 6 xonali kod yuborish <ArrowUpRight size={15} />
+                </>
+              )}
+            </button>
+
+            {mode === 'login' && loginMethod === 'otp' && (
+              <button
+                className="otp-link-btn"
+                onClick={() => {
+                  setMode('reset')
+                  setPassword('')
+                  setConfirmPassword('')
+                  resetOtpState()
+                }}
+                style={{ alignSelf: 'center', marginTop: 8 }}
+                type="button"
+              >
+                Parolni unutdingizmi? Tiklash
+              </button>
+            )}
+
+            {mode === 'reset' && (
+              <button
+                className="otp-link-btn"
+                onClick={() => {
+                  setMode('login')
+                  resetOtpState()
+                }}
+                style={{ alignSelf: 'center', marginTop: 8 }}
+                type="button"
+              >
+                ← Kirishga qaytish
+              </button>
+            )}
           </>
         )}
-
-        <div className="form-group-modern">
-          <label className="form-label" htmlFor="auth-email">
-            {mode === 'login' ? 'Email manzil yoki @username *' : 'Email manzil *'}
-          </label>
-          <div className="input-with-icon">
-            <Mail className="field-icon" size={15} />
-            <input
-              autoFocus={mode === 'login'}
-              className="form-control"
-              id="auth-email"
-              maxLength={100}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={mode === 'login' ? 'email@example.com yoki @username' : 'email@example.com'}
-              required
-              type={mode === 'login' ? 'text' : 'email'}
-              value={email}
-            />
-          </div>
-        </div>
-
-        <div className="form-group-modern">
-          <label className="form-label" htmlFor="auth-password">
-            Parol *
-          </label>
-          <input
-            className="form-control"
-            id="auth-password"
-            minLength={6}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Kamida 6 ta belgi"
-            required
-            type="password"
-            value={password}
-          />
-        </div>
-
-        {mode === 'register' && (
-          <div className="form-group-modern">
-            <label className="form-label" htmlFor="auth-confirm-password">
-              Parolni tasdiqlang *
-            </label>
-            <input
-              className="form-control"
-              id="auth-confirm-password"
-              minLength={6}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Parolni qayta kiriting"
-              required
-              type="password"
-              value={confirmPassword}
-            />
-          </div>
-        )}
-
-        <button className="button button-primary auth-submit-btn" disabled={loading} type="submit">
-          {loading ? (
-            <>
-              <Loader2 className="animate-spin" size={15} /> Kutilmoqda...
-            </>
-          ) : mode === 'login' ? (
-            <>
-              Kirish <ArrowUpRight size={15} />
-            </>
-          ) : (
-            <>
-              Ro‘yxatdan o‘tish (+5 tanga) <ArrowUpRight size={15} />
-            </>
-          )}
-        </button>
       </form>
 
       <p className="privacy-note">
@@ -1017,18 +1427,11 @@ export function SecurityNoticeModal({
       return
     }
 
-    const timer = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer)
-          onClose()
-          return 0
-        }
-        return prev - 1
-      })
+    const timer = window.setTimeout(() => {
+      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0))
     }, 1000)
 
-    return () => clearInterval(timer)
+    return () => window.clearTimeout(timer)
   }, [secondsLeft, onClose])
 
   return (
@@ -1648,39 +2051,189 @@ export function PublicProfileModal({
   )
 }
 
-// ---------------- WALLET MODAL (HAMYON VA TOP-UP) ----------------
+// ---------------- WALLET MODAL (HAMYON VA 2-BOSQICHLI TOP-UP) ----------------
+type WalletPack = {
+  id: 'start' | 'popular' | 'pro' | 'vip'
+  title: string
+  subtitle: string
+  baseCoins: number
+  bonusCoins: number
+  totalCoins: number
+  priceUzs: number
+  badge?: string
+  popular?: boolean
+}
+
+type WalletTransaction = {
+  id: string
+  type: 'topup' | 'spend' | 'daily_bonus' | 'admin_adjust'
+  packTitle?: string
+  coinsDelta: number
+  amountUzs: number
+  provider?: 'payme' | 'click' | 'uzum'
+  status: 'pending' | 'completed' | 'rejected'
+  note?: string
+  createdAt: string
+}
+
+const DEFAULT_WALLET_PACKS: WalletPack[] = [
+  { id: 'start', title: 'Start', subtitle: 'Sinab ko‘rish uchun', baseCoins: 5, bonusCoins: 0, totalCoins: 5, priceUzs: 5000 },
+  { id: 'popular', title: 'Ommabop', subtitle: '+20% bepul bonus', baseCoins: 15, bonusCoins: 3, totalCoins: 18, priceUzs: 15000, badge: 'Mashhur', popular: true },
+  { id: 'pro', title: 'Pro', subtitle: '+30% bepul bonus', baseCoins: 30, bonusCoins: 9, totalCoins: 39, priceUzs: 30000, badge: 'Eng foydali' },
+  { id: 'vip', title: 'VIP', subtitle: '+40% bepul bonus', baseCoins: 50, bonusCoins: 20, totalCoins: 70, priceUzs: 50000, badge: 'Maksimal' },
+]
+
 export function WalletModal({
   coins,
   onClose,
-  onAddCoins,
+  onTopUpSubmitted,
 }: {
   coins: number
   onClose: () => void
-  onAddCoins: (amount: number) => void
+  onTopUpSubmitted: (message: string) => void
 }) {
-  const [selectedPack, setSelectedPack] = useState(10)
-  const [success, setSuccess] = useState(false)
+  const [packs, setPacks] = useState<WalletPack[]>(DEFAULT_WALLET_PACKS)
+  const [selectedPackId, setSelectedPackId] = useState<WalletPack['id']>('popular')
+  const [provider, setProvider] = useState<'payme' | 'click' | 'uzum'>('payme')
+  const [promoCode, setPromoCode] = useState('')
+  const [promoStatus, setPromoStatus] = useState<{
+    checked: boolean
+    valid: boolean
+    bonusCoins: number
+    message: string
+  } | null>(null)
+  const [step, setStep] = useState<'select' | 'checkout' | 'submitted'>('select')
+  const [paymentRef, setPaymentRef] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [submittedInfo, setSubmittedInfo] = useState<{ id: string; coinsDelta: number; amountUzs: number } | null>(null)
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([])
 
-  const coinPacks = [
-    { amount: 5, price: '15,000 UZS', popular: false },
-    { amount: 10, price: '25,000 UZS', popular: true },
-    { amount: 25, price: '50,000 UZS', popular: false },
-  ]
+  async function loadWalletState() {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('swaply_token') : null
+    try {
+      const res = await fetch('/api/coins/topup', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data.packs) && data.packs.length > 0) {
+        setPacks(data.packs)
+      }
+      if (Array.isArray(data.transactions)) {
+        setTransactions(data.transactions)
+      }
+    } catch {}
+  }
 
-  function handleBuy() {
-    onAddCoins(selectedPack)
-    setSuccess(true)
-    setTimeout(() => {
-      setSuccess(false)
-      onClose()
-    }, 1500)
+  useEffect(() => {
+    loadWalletState()
+  }, [])
+
+  const selectedPack = packs.find((p) => p.id === selectedPackId) || packs[1] || packs[0]
+  const promoBonus = promoStatus?.valid ? promoStatus.bonusCoins : 0
+  const finalTotalCoins = selectedPack.totalCoins + promoBonus
+
+  async function handleCheckPromo() {
+    setErrorMsg('')
+    const clean = promoCode.trim().toUpperCase()
+    if (!clean) {
+      setPromoStatus(null)
+      return
+    }
+    try {
+      const res = await fetch(
+        `/api/coins/topup?promo=${encodeURIComponent(clean)}&packId=${encodeURIComponent(selectedPack.id)}`
+      )
+      const data = await res.json()
+      const check = data.promoCheck
+      if (check?.valid) {
+        setPromoStatus({
+          checked: true,
+          valid: true,
+          bonusCoins: check.bonusCoins || 0,
+          message: `Promo-kod faol: +${check.bonusCoins} bonus tanga qo‘shiladi!`,
+        })
+      } else {
+        setPromoStatus({
+          checked: true,
+          valid: false,
+          bonusCoins: 0,
+          message: check?.error || 'Promo-kod topilmadi',
+        })
+      }
+    } catch {
+      setPromoStatus({
+        checked: true,
+        valid: false,
+        bonusCoins: 0,
+        message: 'Promo-kodni tekshirib bo‘lmadi',
+      })
+    }
+  }
+
+  async function handleSubmitOrder(e: FormEvent) {
+    e.preventDefault()
+    setErrorMsg('')
+    const token = localStorage.getItem('swaply_token')
+    if (!token) {
+      setErrorMsg('To‘lov so‘rovini yuborish uchun tizimga kiring')
+      return
+    }
+
+    if (paymentRef.trim().length < 4) {
+      setErrorMsg('Chek/tranzaksiya raqami yoki telefon oxirgi 4 raqamini kiriting')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/coins/topup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          packId: selectedPack.id,
+          provider,
+          paymentRef: paymentRef.trim(),
+          promoCode: promoStatus?.valid ? promoCode.trim().toUpperCase() : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setErrorMsg(data.error || 'To‘lov so‘rovini yuborishda xatolik')
+        return
+      }
+
+      setSubmittedInfo({
+        id: data.transaction?.id || 'ORD',
+        coinsDelta: data.transaction?.coinsDelta || finalTotalCoins,
+        amountUzs: data.transaction?.amountUzs || selectedPack.priceUzs,
+      })
+      setStep('submitted')
+      setPaymentRef('')
+      onTopUpSubmitted(data.message || 'To‘lov so‘rovi qabul qilindi!')
+      loadWalletState()
+    } catch {
+      setErrorMsg('Server bilan bog‘lanishda xatolik yuz berdi')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const providerLabels: Record<'payme' | 'click' | 'uzum', string> = {
+    payme: 'Payme',
+    click: 'Click',
+    uzum: 'Uzum Bank',
   }
 
   return (
     <ModalFrame
-      description="Hisobingizdagi tangalarni boshqaring va yangi kontaktlarni ochish uchun balansni to‘ldiring"
+      description="1 tanga = 1,000 UZS. Katta paketlarda +40% gacha bepul bonus tangalar oling!"
       onClose={onClose}
-      size="narrow"
+      size="wide"
       title="Swaply Hamyoni"
     >
       <div className="wallet-card">
@@ -1689,41 +2242,255 @@ export function WalletModal({
           <span className="wallet-badge">
             <Coins size={14} /> Tanga Balansi
           </span>
-          <span className="wallet-currency">SWAP COINS</span>
+          <span className="wallet-currency">1 ◈ = 1,000 UZS</span>
         </div>
         <div className="wallet-balance">
           <span className="wallet-coins-num">{coins}</span>
           <span className="wallet-coins-symbol">◈</span>
         </div>
         <div className="wallet-bottom">
-          <span className="wallet-note">1 ta kontakt ochish = 1 ta tanga</span>
+          <span className="wallet-note">1 ta kontakt ochish = 1 ta tanga • Promo-kod: WELCOME (+3 ◈)</span>
         </div>
       </div>
 
-      {success && <div className="wallet-success-banner">✓ Balansingiz muvaffaqiyatli to‘ldirildi!</div>}
+      {errorMsg && <div className="auth-error">{errorMsg}</div>}
 
-      <div className="packs-title">Tangalar to‘plamini tanlang:</div>
-      <div className="coin-packs-grid">
-        {coinPacks.map((pack) => (
-          <div
-            className={`coin-pack-card ${selectedPack === pack.amount ? 'pack-selected' : ''}`}
-            key={pack.amount}
-            onClick={() => setSelectedPack(pack.amount)}
-          >
-            {pack.popular && <span className="pack-popular-badge">Mashhur</span>}
-            <div className="pack-amount">+{pack.amount} ◈</div>
-            <div className="pack-price">{pack.price}</div>
+      {step === 'select' && (
+        <>
+          <div className="packs-title">1. Tanga paketini tanlang:</div>
+          <div className="coin-packs-grid coin-packs-grid-4">
+            {packs.map((pack) => (
+              <div
+                className={`coin-pack-card ${selectedPack.id === pack.id ? 'pack-selected' : ''}`}
+                key={pack.id}
+                onClick={() => {
+                  setSelectedPackId(pack.id)
+                  if (promoCode.trim()) setPromoStatus(null)
+                }}
+              >
+                {pack.badge && (
+                  <span className={`pack-popular-badge ${pack.popular ? 'is-popular' : ''}`}>
+                    {pack.badge}
+                  </span>
+                )}
+                <div className="pack-title-label">{pack.title}</div>
+                <div className="pack-amount">
+                  {pack.baseCoins}
+                  {pack.bonusCoins > 0 && <span className="pack-bonus-plus">+{pack.bonusCoins}</span>} ◈
+                </div>
+                <div className="pack-price">{pack.priceUzs.toLocaleString()} UZS</div>
+                <div className="pack-sub-note">{pack.subtitle}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <button className="button button-primary wallet-buy-btn" onClick={handleBuy} type="button">
-        To‘ldirish (+{selectedPack} tanga) <ArrowUpRight size={15} />
-      </button>
+          <div className="wallet-promo-row">
+            <input
+              className="form-control"
+              onChange={(e) => {
+                setPromoCode(e.target.value.toUpperCase())
+                setPromoStatus(null)
+              }}
+              placeholder="Promo-kod (masalan: WELCOME yoki SWAPLY20)"
+              type="text"
+              value={promoCode}
+            />
+            <button className="button button-cream wallet-promo-btn" onClick={handleCheckPromo} type="button">
+              Tekshirish
+            </button>
+          </div>
+          {promoStatus && (
+            <div className={`wallet-promo-msg ${promoStatus.valid ? 'ok' : 'err'}`}>
+              {promoStatus.message}
+            </div>
+          )}
+
+          <div className="packs-title" style={{ marginTop: 12 }}>
+            2. To‘lov tizimini tanlang:
+          </div>
+          <div className="wallet-providers-row">
+            {(['payme', 'click', 'uzum'] as const).map((p) => (
+              <button
+                className={`wallet-provider-btn ${provider === p ? 'active' : ''}`}
+                key={p}
+                onClick={() => setProvider(p)}
+                type="button"
+              >
+                {providerLabels[p]}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className="button button-primary wallet-buy-btn"
+            onClick={() => {
+              setErrorMsg('')
+              setStep('checkout')
+            }}
+            type="button"
+          >
+            To‘lovga o‘tish ({selectedPack.priceUzs.toLocaleString()} UZS → +{finalTotalCoins} ◈)
+            <ArrowUpRight size={15} />
+          </button>
+        </>
+      )}
+
+      {step === 'checkout' && (
+        <form className="wallet-checkout-box" onSubmit={handleSubmitOrder}>
+          <div className="wallet-invoice-card">
+            <div className="invoice-row">
+              <span>Tanlangan paket:</span>
+              <strong>{selectedPack.title} ({selectedPack.baseCoins} + {selectedPack.bonusCoins} bonus)</strong>
+            </div>
+            {promoBonus > 0 && (
+              <div className="invoice-row">
+                <span>Promo-kod ({promoCode.toUpperCase()}):</span>
+                <strong className="invoice-bonus">+{promoBonus} bonus ◈</strong>
+              </div>
+            )}
+            <div className="invoice-row">
+              <span>To‘lov usuli:</span>
+              <strong>{providerLabels[provider]}</strong>
+            </div>
+            <div className="invoice-row invoice-total">
+              <span>Jami olinadigan tanga:</span>
+              <strong>+{finalTotalCoins} ◈</strong>
+            </div>
+            <div className="invoice-row invoice-total">
+              <span>To‘lov summasi:</span>
+              <strong>{selectedPack.priceUzs.toLocaleString()} UZS</strong>
+            </div>
+          </div>
+
+          <div className="wallet-pay-instructions">
+            <strong>{providerLabels[provider]}</strong> ilovasi orqali{' '}
+            <strong>{selectedPack.priceUzs.toLocaleString()} UZS</strong> to‘lovni amalga oshiring va quyida
+            chek/tranzaksiya raqami yoki telefon raqamingizning oxirgi 4 raqamini kiriting:
+          </div>
+
+          <label className="form-label" htmlFor="payment-ref-input">
+            Chek / Tranzaksiya ID yoki telefon oxirgi 4 raqami
+          </label>
+          <input
+            className="form-control"
+            id="payment-ref-input"
+            onChange={(e) => setPaymentRef(e.target.value)}
+            placeholder="Masalan: 8812 yoki PAYME-94821"
+            required
+            type="text"
+            value={paymentRef}
+          />
+
+          <div className="wallet-checkout-actions">
+            <button
+              className="button button-cream"
+              onClick={() => setStep('select')}
+              type="button"
+            >
+              Orqaga
+            </button>
+            <button className="button button-primary" disabled={submitting} style={{ flex: 1 }} type="submit">
+              {submitting ? <Loader2 className="spin-icon" size={15} /> : 'To‘lov so‘rovini yuborish'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {step === 'submitted' && submittedInfo && (
+        <div className="wallet-submitted-card">
+          <div className="wallet-success-banner">
+            ✓ Buyurtma <strong>#{submittedInfo.id}</strong> yuborildi!
+          </div>
+          <p className="wallet-submitted-desc">
+            <strong>{submittedInfo.amountUzs.toLocaleString()} UZS</strong> to‘lov so‘rovingiz tekshiruvga
+            yuborildi. Admin tasdiqlashi bilan hisobingizga <strong>+{submittedInfo.coinsDelta} ◈</strong>{' '}
+            tanga qo‘shiladi.
+          </p>
+          <button
+            className="button button-primary wallet-buy-btn"
+            onClick={() => setStep('select')}
+            type="button"
+          >
+            Yana paket tanlash
+          </button>
+        </div>
+      )}
+
+      {transactions.length > 0 && (
+        <div className="wallet-history-section">
+          <div className="packs-title">So‘nggi amallar tarixi</div>
+          <div className="wallet-history-list">
+            {transactions.slice(0, 4).map((tx) => (
+              <div className="wallet-history-item" key={tx.id}>
+                <div>
+                  <strong>{tx.note || tx.packTitle || tx.type}</strong>
+                  <small>
+                    {tx.provider ? `${tx.provider.toUpperCase()} • ` : ''}
+                    {tx.amountUzs > 0 ? `${tx.amountUzs.toLocaleString()} UZS` : 'Tanga amali'}
+                  </small>
+                </div>
+                <div className="wallet-history-right">
+                  <span className={tx.coinsDelta >= 0 ? 'tx-plus' : 'tx-minus'}>
+                    {tx.coinsDelta >= 0 ? `+${tx.coinsDelta}` : tx.coinsDelta} ◈
+                  </span>
+                  <span className={`tx-status ${tx.status}`}>
+                    {tx.status === 'pending' ? 'Kutilmoqda' : tx.status === 'completed' ? 'Tasdiqlandi' : 'Rad etildi'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <p className="wallet-safety-note">
-        <ShieldCheck size={13} /> To‘lovlar Payme, Click va Uzum Bank orqali xavfsiz amalga oshiriladi
+        <ShieldCheck size={13} /> To‘lovlar Payme, Click va Uzum Bank orqali xavfsiz qabul qilinadi
       </p>
+    </ModalFrame>
+  )
+}
+
+// ---------------- IN-SITE CONFIRMATION MODAL (ALERT O'RNIGA) ----------------
+export function ConfirmActionModal({
+  title,
+  description,
+  confirmLabel = 'Ha, o‘chirilsin',
+  cancelLabel = 'Bekor qilish',
+  danger = true,
+  busy = false,
+  onConfirm,
+  onClose,
+}: {
+  title: string
+  description: string
+  confirmLabel?: string
+  cancelLabel?: string
+  danger?: boolean
+  busy?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <ModalFrame description={description} onClose={onClose} size="narrow" title={title}>
+      <div className="confirm-action-box">
+        <div className={`confirm-action-icon ${danger ? 'is-danger' : ''}`}>
+          <AlertTriangle size={24} />
+        </div>
+        <p className="confirm-action-text">{description}</p>
+        <div className="confirm-action-buttons">
+          <button className="button button-cream" disabled={busy} onClick={onClose} type="button">
+            {cancelLabel}
+          </button>
+          <button
+            className={`button ${danger ? 'button-danger' : 'button-primary'}`}
+            disabled={busy}
+            onClick={onConfirm}
+            type="button"
+          >
+            {busy ? <Loader2 className="spin-icon" size={15} /> : confirmLabel}
+          </button>
+        </div>
+      </div>
     </ModalFrame>
   )
 }

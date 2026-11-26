@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createReport, getAllReports, updateReportStatus, findUserById } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { parseJsonBody, requireAdmin } from '@/lib/api-helpers'
+import { parseJsonBody, requireStaff } from '@/lib/api-helpers'
 
 const VALID_REASONS = new Set(['spam', 'scam', 'offensive', 'fake', 'other'])
 const VALID_TARGET_TYPES = new Set(['offer', 'user', 'platform'])
@@ -9,8 +9,8 @@ const VALID_STATUSES = new Set(['pending', 'reviewed', 'resolved'])
 
 export async function GET(request: NextRequest) {
   try {
-    const adminAuth = requireAdmin(request)
-    if (adminAuth.error) return adminAuth.error
+    const staffAuth = requireStaff(request)
+    if (staffAuth.error) return staffAuth.error
 
     const reports = getAllReports()
     return NextResponse.json({ reports })
@@ -113,8 +113,8 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const adminAuth = requireAdmin(request)
-    if (adminAuth.error) return adminAuth.error
+    const staffAuth = requireStaff(request)
+    if (staffAuth.error) return staffAuth.error
 
     const parsed = await parseJsonBody<{ reportId?: unknown; status?: unknown }>(request)
     if (parsed.error) return parsed.error

@@ -11,11 +11,14 @@ export function sanitizeUser(user: User) {
     avatar: user.avatar,
     bio: user.bio,
     gender: user.gender,
-    role: user.role,
+    role: user.role || 'user',
+    verified: Boolean(user.verified || user.role === 'admin' || user.role === 'supporter'),
+    banned: Boolean(user.banned),
     coins: user.coins,
     phone: user.phone,
     telegram: user.telegram,
     whatsapp: user.whatsapp,
+    unlockedOfferIds: user.unlockedOfferIds || [],
     lastClaimDate: user.lastClaimDate,
     createdAt: user.createdAt,
   }
@@ -74,11 +77,42 @@ export function authenticateRequest(
     }
   }
 
+  if (user.banned) {
+    return {
+      error: NextResponse.json(
+        { error: 'Hisobingiz bloklangan. Ma’muriyat bilan bog‘laning' },
+        { status: 403 }
+      ),
+    }
+  }
+
   return { user }
 }
 
 export function isAdminUser(user: User): boolean {
   return user.role === 'admin' || user.username === 'amir'
+}
+
+export function isStaffUser(user: User): boolean {
+  return isAdminUser(user) || user.role === 'supporter'
+}
+
+export function requireStaff(
+  request: NextRequest
+): { user: User; error?: never } | { user?: never; error: NextResponse } {
+  const auth = authenticateRequest(request, 'Admin paneliga kirish uchun tizimga kiring')
+  if (auth.error) return auth
+
+  if (!isStaffUser(auth.user)) {
+    return {
+      error: NextResponse.json(
+        { error: 'Sizda boshqaruv paneliga kirish huquqi mavjud emas' },
+        { status: 403 }
+      ),
+    }
+  }
+
+  return auth
 }
 
 export function requireAdmin(

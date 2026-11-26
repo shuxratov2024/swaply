@@ -12,7 +12,6 @@ import {
   LogOut,
   Plus,
   Search,
-  Shield,
   Star,
   User,
   UserPlus,
@@ -30,7 +29,6 @@ export function Topbar({
   avatar,
   locale,
   isLoggedIn,
-  isAdmin,
   onLocaleChange,
   onClaim,
   onAdd,
@@ -39,7 +37,6 @@ export function Topbar({
   onRegister,
   onLogout,
   onWalletClick,
-  onOpenAdmin,
   onSelectUser,
 }: {
   coins: number
@@ -49,7 +46,6 @@ export function Topbar({
   avatar: string
   locale: Locale
   isLoggedIn: boolean
-  isAdmin?: boolean
   onLocaleChange: (locale: Locale) => void
   onClaim: () => void
   onAdd: () => void
@@ -58,7 +54,6 @@ export function Topbar({
   onRegister: () => void
   onLogout: () => void
   onWalletClick?: () => void
-  onOpenAdmin?: () => void
   onSelectUser?: (member: MemberUser) => void
 }) {
   const text = copy[locale]
@@ -151,7 +146,7 @@ export function Topbar({
               onFocus={() => {
                 if (searchResults.length > 0) setShowDropdown(true)
               }}
-              placeholder="Foydalanuvchilarni qidirish (@amir, Ism, Familiya)..."
+              placeholder="Foydalanuvchi qidirish (@username, Ism)..."
               type="text"
               value={headerSearch}
             />
@@ -221,20 +216,6 @@ export function Topbar({
         </div>
 
         <div className="topbar-actions">
-          {/* Admin panel trigger */}
-          {isLoggedIn && isAdmin && (
-            <button
-              aria-label="Admin panel"
-              className="admin-topbar-pill"
-              onClick={() => onOpenAdmin?.()}
-              title="Admin Dashboard: Tahlil va monitoring"
-              type="button"
-            >
-              <Shield size={14} />
-              <span>Admin</span>
-            </button>
-          )}
-
           {isLoggedIn && (
             <div
               className="wallet-pill"
@@ -329,7 +310,7 @@ export function Topbar({
               </button>
               <button
                 aria-label="Ro‘yxatdan o‘tish"
-                className="signup-button-subtle"
+                className="button button-primary signup-cta-pill"
                 onClick={onRegister}
                 type="button"
               >
