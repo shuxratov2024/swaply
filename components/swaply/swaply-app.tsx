@@ -45,6 +45,7 @@ import {
   type AppNotification,
   avatarOptions,
 } from './types'
+import { CATEGORIES as CATEGORIES_LIB } from '@/lib/categories'
 
 // Lazy-loaded modals to minimize initial bundle size
 const AuthModal = dynamic(() => import('./swaply-modals').then((m) => m.AuthModal), { ssr: false })
@@ -521,13 +522,15 @@ export function SwaplyApp({
         if (!offer.location?.toLowerCase().includes(locationFilter.toLowerCase())) return false
       }
 
-      const selectedCategoryIndex = categories.indexOf(activeCategory)
-      const matchesCategory =
+      const selectedCategoryIndex = CATEGORIES_LIB.findIndex(
+      (c) => c.id === activeCategory || c.name === activeCategory || c.uz === activeCategory || c.ru === activeCategory || c.en === activeCategory
+    )
+    const matchesCategory =
         viewMode === 'favorites' ||
         selectedCategoryIndex <= 0 ||
-        offer.category === copy.UZ.categories[selectedCategoryIndex - 1] ||
-        offer.category === copy.RU.categories[selectedCategoryIndex - 1] ||
-        offer.category === copy.EN.categories[selectedCategoryIndex - 1] ||
+        CATEGORIES_LIB[selectedCategoryIndex - 1]?.uz === offer.category ||
+        CATEGORIES_LIB[selectedCategoryIndex - 1]?.ru === offer.category ||
+        CATEGORIES_LIB[selectedCategoryIndex - 1]?.en === offer.category ||
         offer.category === activeCategory
 
       const searchable =

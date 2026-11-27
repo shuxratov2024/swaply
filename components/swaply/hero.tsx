@@ -3,6 +3,7 @@
 import { ArrowDown, ArrowLeftRight, ArrowUpRight, Check, Search, Sparkles, UsersRound, Zap } from 'lucide-react'
 import type { Locale } from './types'
 import { copy } from './translations'
+import { CATEGORIES } from '@/lib/categories'
 
 export function Hero({
   locale,
@@ -24,7 +25,9 @@ export function Hero({
   onAdd: () => void
 }) {
   const text = copy[locale]
-  const categories = [text.all, ...text.categories]
+  // Map categories based on current locale
+  const categoryKeys: Record<Locale, keyof Category> = { UZ: 'uz', RU: 'ru', EN: 'en' }
+  const categories = CATEGORIES.map((c) => c[categoryKeys[locale]])
 
   return (
     <section aria-labelledby="hero-title" className="hero-grid" id="top">
