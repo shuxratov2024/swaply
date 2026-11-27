@@ -1377,7 +1377,7 @@ export function searchUsers(query: string, genderFilter?: string): PublicUser[] 
 }
 
 // Offer amallari
-export function getAllOffers(genderFilter?: string, locationFilter?: string): OfferItem[] {
+export function getAllOffers(genderFilter?: string, locationFilter?: string, categoryFilter?: string): OfferItem[] {
   const db = ensureDbFile()
   const bannedUserIds = new Set(db.users.filter((u) => u.banned).map((u) => u.id))
   const getReviewStat = indexReviewsSummary(db.reviews || [])
@@ -1399,6 +1399,10 @@ export function getAllOffers(genderFilter?: string, locationFilter?: string): Of
   if (locationFilter && locationFilter !== 'all') {
     const loc = locationFilter.toLowerCase()
     offers = offers.filter((o) => o.location?.toLowerCase().includes(loc))
+  }
+
+  if (categoryFilter && categoryFilter !== 'all') {
+    offers = offers.filter((o) => o.category === categoryFilter)
   }
 
   return offers

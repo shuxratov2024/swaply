@@ -21,17 +21,13 @@ export async function GET(request: NextRequest) {
     const gender = searchParams.get('gender')
     const location = searchParams.get('location')
 
-    let offers = getAllOffers(gender || undefined, location || undefined)
+    let offers = getAllOffers(gender || undefined, location || undefined, category || undefined)
 
     if (userIdParam) {
       const parsedUserId = parseInt(userIdParam, 10)
       if (!isNaN(parsedUserId)) {
         offers = offers.filter((o) => o.userId === parsedUserId)
       }
-    }
-
-    if (category && category !== 'Barchasi' && category !== 'Все' && category !== 'All' && category !== 'All skills') {
-      offers = offers.filter((o) => o.category === category)
     }
 
     if (search) {
