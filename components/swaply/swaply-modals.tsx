@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, type FormEvent, type ChangeEvent } from 'react'
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUpRight,
   BadgeCheck,
@@ -44,7 +45,14 @@ import {
   Zap,
 } from 'lucide-react'
 import { ModalFrame } from './modal-frame'
-import { type Offer, type MemberUser, type ReportItem, avatarOptions, type Gender } from './types'
+import {
+  type Offer,
+  type MemberUser,
+  type UserReview,
+  type SwapRequest,
+  avatarOptions,
+  type Gender,
+} from './types'
 
 export type AuthUser = {
   id: number
@@ -1591,368 +1599,403 @@ export function ReportModal({
   )
 }
 
-// ---------------- ADMIN PANEL MODAL (TAHLIL & KUZATUV) ----------------
-export function AdminPanelModal({
+// ---------------- SWAP PROPOSAL MODAL (BARTER ALMASHUV TAKLIFI) ----------------
+export function SwapProposalModal({
+  offer,
   onClose,
-  onOfferDeleted,
+  onSuccess,
+}: {
+  offer: Offer
+  onClose: () => void
+  onSuccess: (message: string) => void
+}) {
+  const [proposedSkill, setProposedSkill] = useState(offer.wantsToLearn || '')
+  const [message, setMessage] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    const token = localStorage.getItem('swaply_token')
+    if (!token) {
+      setError('Almashuv taklifi yuborish uchun tizimga kiring')
+      return
+    }
+    if (proposedSkill.trim().length < 2 || message.trim().length < 4) {
+      setError('Taklif qilayotgan ko‘nikma va xabarni to‘liq yozing')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/swaps', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          offerId: offer.id,
+          proposedSkill: proposedSkill.trim(),
+          message: message.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Taklif yuborishda xatolik')
+        return
+      }
+      onSuccess(data.message || 'Almashuv taklifingiz yuborildi!')
+      onClose()
+    } catch {
+      setError('Server bilan bog‘lanishda xatolik')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <ModalFrame
+      description={`${offer.name} (@${offer.username || 'user'}) ga ko‘nikma almashish taklifi yuboring`}
+      onClose={onClose}
+      size="narrow"
+      title="Barter almashuv taklifi"
+    >
+      <div className="swap-offer-summary">
+        <div>
+          <small>U o‘rgatadi:</small>
+          <strong>{offer.canTeach}</strong>
+        </div>
+        <ArrowLeftRight size={16} />
+        <div>
+          <small>U o‘rganmoqchi:</small>
+          <strong>{offer.wantsToLearn}</strong>
+        </div>
+      </div>
+
+      {error && <div className="auth-error">{error}</div>}
+
+      <form className="modal-form" onSubmit={handleSubmit}>
+        <label className="form-label" htmlFor="swap-proposed-skill">
+          Siz nima o‘rgata olasiz? *
+        </label>
+        <input
+          className="form-control"
+          id="swap-proposed-skill"
+          maxLength={100}
+          onChange={(e) => setProposedSkill(e.target.value)}
+          placeholder="Masalan: Ingliz tili (IELTS) yoki React asoslari"
+          required
+          value={proposedSkill}
+        />
+
+        <label className="form-label" htmlFor="swap-message">
+          Qisqa taklif xabari *
+        </label>
+        <textarea
+          className="form-control form-textarea"
+          id="swap-message"
+          maxLength={400}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Salom! Haftada 2 marta kechqurun birga mashg‘ulot qilsak bo‘ladimi?"
+          required
+          rows={3}
+          value={message}
+        />
+
+        <button className="button button-primary modal-submit" disabled={submitting} type="submit">
+          {submitting ? <Loader2 className="spin-icon" size={15} /> : 'Almashuv taklifini yuborish'}
+        </button>
+      </form>
+    </ModalFrame>
+  )
+}
+
+// ---------------- MY SWAPS MODAL (ALMASHUVLARIM) ----------------
+export function MySwapsModal({
+  onClose,
+  onStatusUpdated,
 }: {
   onClose: () => void
-  onOfferDeleted?: () => void
+  onStatusUpdated: (message: string, newCoins?: number) => void
 }) {
-  const [tab, setTab] = useState<'overview' | 'users' | 'reports'>('overview')
-  const [searchUser, setSearchUser] = useState('')
+  const [tab, setTab] = useState<'incoming' | 'outgoing'>('incoming')
+  const [incoming, setIncoming] = useState<SwapRequest[]>([])
+  const [outgoing, setOutgoing] = useState<SwapRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const [adminData, setAdminData] = useState<{
-    stats: any
-    users: any[]
-    reports: ReportItem[]
-  } | null>(null)
-  const [selectedInspectUser, setSelectedInspectUser] = useState<any | null>(null)
-  const [actionMsg, setActionMsg] = useState('')
-  const [showNotifications, setShowNotifications] = useState(true)
-  const NOTIFICATIONS_KEY = 'admin_notification_toggle'
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [error, setError] = useState('')
 
-  // Load toggle state from localStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(NOTIFICATIONS_KEY)
-      if (saved !== null) {
-        setShowNotifications(JSON.parse(saved))
-      }
-    } catch {}
-  }, [])
-
-  // Save toggle state to localStorage when it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(NOTIFICATIONS_KEY, String(showNotifications))
-    } catch {}
-  }, [showNotifications])
-
-  async function loadAdminData(query = '') {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('swaply_token') : null
-    if (!token) return
+  async function loadSwaps() {
+    const token = localStorage.getItem('swaply_token')
+    if (!token) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin?query=${encodeURIComponent(query)}`, {
+      const res = await fetch('/api/swaps', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) return
       const data = await res.json()
-      setAdminData(data)
-      if (query && data.users?.length > 0) {
-        setSelectedInspectUser(data.users[0])
-      }
-    } catch (e) {
-      console.error(e)
+      setIncoming(Array.isArray(data.incoming) ? data.incoming : [])
+      setOutgoing(Array.isArray(data.outgoing) ? data.outgoing : [])
+    } catch {
+      setError('Almashuvlarni yuklab bo‘lmadi')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadAdminData(searchUser)
-  }, [searchUser])
+    loadSwaps()
+  }, [])
 
-  async function handleDeleteOffer(offerId: string) {
-    if (!window.confirm('Haqiqatan ham bu taklifni o‘chirmoqchimisiz?')) return
+  async function handleAction(swapId: string, status: 'accepted' | 'declined' | 'completed') {
     const token = localStorage.getItem('swaply_token')
     if (!token) return
-
+    setBusyId(swapId)
+    setError('')
     try {
-      const res = await fetch('/api/admin', {
-        method: 'POST',
+      const res = await fetch('/api/swaps', {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: 'deleteOffer', offerId }),
+        body: JSON.stringify({ swapId, status }),
       })
-      if (res.ok) {
-        setActionMsg('Taklif muvaffaqiyatli o‘chirildi!')
-        loadAdminData(searchUser)
-        onOfferDeleted?.()
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Amal bajarilmadi')
+        return
       }
-    } catch {}
+      onStatusUpdated(data.message || 'Yangilandi!', typeof data.coins === 'number' ? data.coins : undefined)
+      await loadSwaps()
+    } catch {
+      setError('Server bilan bog‘lanishda xatolik')
+    } finally {
+      setBusyId(null)
+    }
   }
 
-  async function handleResolveReport(reportId: string) {
-    const token = localStorage.getItem('swaply_token')
-    if (!token) return
-    try {
-      const res = await fetch('/api/admin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action: 'updateReport', reportId, status: 'resolved' }),
-      })
-      if (res.ok) {
-        setActionMsg('Shikoyat ko‘rib chiqildi!')
-        loadAdminData(searchUser)
-      }
-    } catch {}
-  }
+  const list = tab === 'incoming' ? incoming : outgoing
 
   return (
     <ModalFrame
-      description="Swaply platformasi ma’muri: Foydalanuvchilar faoliyati, takliflari va shikoyatlarni monitoring qilish"
+      description="Kiruvchi va yuborilgan barter takliflarini boshqaring. Yakunlangan har bir almashuv uchun +1 tanga bonus!"
       onClose={onClose}
       size="wide"
-      title="Admin Dashboard & Tahlil Paneli"
+      title="Almashuvlarim"
     >
-      <div className="admin-tabs-row">
+      <div className="auth-mode-segmented" style={{ marginTop: 12 }}>
         <button
-          className={`admin-tab-btn ${tab === 'overview' ? 'active' : ''}`}
-          onClick={() => setTab('overview')}
+          className={`auth-segment-btn ${tab === 'incoming' ? 'active' : ''}`}
+          onClick={() => setTab('incoming')}
           type="button"
         >
-          <Building size={14} /> Umumiy Statistika
+          Kiruvchi ({incoming.length})
         </button>
         <button
-          className={`admin-tab-btn ${tab === 'users' ? 'active' : ''}`}
-          onClick={() => setTab('users')}
+          className={`auth-segment-btn ${tab === 'outgoing' ? 'active' : ''}`}
+          onClick={() => setTab('outgoing')}
           type="button"
         >
-          <Users size={14} /> Foydalanuvchilarni Kuzatish (@amir...)
-        </button>
-        <button
-          className={`admin-tab-btn ${tab === 'reports' ? 'active' : ''}`}
-          onClick={() => setTab('reports')}
-          type="button"
-        >
-          <Flag size={14} /> Shikoyatlar ({adminData?.stats?.pendingReports || 0})
+          Yuborilgan ({outgoing.length})
         </button>
       </div>
 
-      {showNotifications && actionMsg && <div className="admin-action-banner">✓ {actionMsg}</div>}
+      {error && <div className="auth-error" style={{ marginTop: 10 }}>{error}</div>}
 
-      {/* Notification toggle in users tab */}
-      {tab === 'users' && (
-        <div className="admin-notification-toggle">
-          <div className="admin-notification-toggle-label">
-            <span>Yangiliklarni ko‘rsatish:</span>
-          </div>
-          <div className="admin-notification-toggle-switch">
-            <button
-              className={`admin-notification-toggle-btn ${showNotifications ? 'active' : ''}`}
-              onClick={() => setShowNotifications((prev) => {
-                const next = !prev
-                try {
-                  localStorage.setItem(NOTIFICATIONS_KEY, String(next))
-                } catch {}
-                return next
-              })}
-              type="button"
-            >
-              <span>{showNotifications ? 'Yoq' : 'Ochiq'}</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loading && !adminData ? (
+      {loading ? (
         <div className="admin-loading">
-          <Loader2 className="animate-spin" size={20} /> Ma’lumotlar yuklanmoqda...
+          <Loader2 className="spin-icon" size={18} /> Yuklanmoqda...
+        </div>
+      ) : list.length === 0 ? (
+        <div className="public-offers-empty" style={{ marginTop: 14 }}>
+          {tab === 'incoming'
+            ? 'Hozircha sizga almashuv takliflari kelmagan.'
+            : 'Siz hali birorta almashuv taklifi yubormagansiz.'}
         </div>
       ) : (
-        <>
-          {tab === 'overview' && adminData && (
-            <div className="admin-overview-grid">
-              <div className="stat-card surface-card">
-                <span className="stat-card-title">Jami Foydalanuvchilar</span>
-                <strong className="stat-card-num">{adminData.stats.totalUsers}</strong>
-                <span className="stat-card-sub">
-                  👨 Erkak: {adminData.stats.genderStats.male} | 👩 Ayol: {adminData.stats.genderStats.female}
-                </span>
-              </div>
-
-              <div className="stat-card surface-card">
-                <span className="stat-card-title">Jami Faol Takliflar</span>
-                <strong className="stat-card-num">{adminData.stats.totalOffers}</strong>
-                <span className="stat-card-sub">Hamjamiyatdagi ko‘nikmalar</span>
-              </div>
-
-              <div className="stat-card surface-card">
-                <span className="stat-card-title">Kelib tushgan shikoyatlar</span>
-                <strong className="stat-card-num">{adminData.stats.totalReports}</strong>
-                <span className="stat-card-sub">
-                  Kutilmoqda: <strong>{adminData.stats.pendingReports}</strong> ta
-                </span>
-              </div>
-            </div>
-          )}
-
-          {tab === 'users' && adminData && (
-            <div className="admin-users-manager">
-              <div className="admin-user-search-bar">
-                <Search size={14} />
-                <input
-                  className="form-control"
-                  onChange={(e) => setSearchUser(e.target.value)}
-                  placeholder="Foydalanuvchi qidirish (@amir, ism, email)..."
-                  value={searchUser}
-                />
-              </div>
-
-              <div className="admin-users-split">
-                <div className="admin-users-list">
-                  {adminData.users.map((u) => (
-                    <div
-                      className={`admin-user-row ${selectedInspectUser?.id === u.id ? 'active' : ''}`}
-                      key={u.id}
-                      onClick={() => setSelectedInspectUser(u)}
-                    >
-                      <img
-                        alt=""
-                        className="admin-row-avatar"
-                        onError={(e) => {
-                          e.currentTarget.src = '/placeholder-user.jpg'
-                        }}
-                        src={u.avatar || '/placeholder-user.jpg'}
-                      />
-                      <div className="admin-row-info">
-                        <strong>{u.name}</strong>
-                        <span>@{u.username}</span>
-                      </div>
-                      <span className="admin-row-offers-count">{u.offersCount} e‘lon</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="admin-user-inspector">
-                  {selectedInspectUser ? (
-                    <div className="inspector-card">
-                      <div className="inspector-header">
-                        <img
-                          alt=""
-                          className="inspector-avatar"
-                          onError={(e) => {
-                            e.currentTarget.src = '/placeholder-user.jpg'
-                          }}
-                          src={selectedInspectUser.avatar || '/placeholder-user.jpg'}
-                        />
-                        <div>
-                          <h3>{selectedInspectUser.name}</h3>
-                          <div className="inspector-username">@{selectedInspectUser.username}</div>
-                          <div className="inspector-badge-row">
-                            <span className="inspector-gender">
-                              {selectedInspectUser.gender === 'male' ? '👨 Erkak' : selectedInspectUser.gender === 'female' ? '👩 Ayol' : 'Boshqa'}
-                            </span>
-                            <span className="inspector-coins">{selectedInspectUser.coins} ◈</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="inspector-contacts">
-                        <div>Email: <strong>{selectedInspectUser.email}</strong></div>
-                        {selectedInspectUser.phone && <div>Tel: <strong>{selectedInspectUser.phone}</strong></div>}
-                        {selectedInspectUser.telegram && <div>Telegram: <strong>{selectedInspectUser.telegram}</strong></div>}
-                      </div>
-
-                      {/* Joylagan takliflari bo'limi */}
-                      <div className="inspector-offers-section">
-                        <h4>@{selectedInspectUser.username} joylagan takliflar ({selectedInspectUser.offers?.length || 0}):</h4>
-                        {selectedInspectUser.offers?.length === 0 ? (
-                          <div className="no-offers-msg">Ushbu foydalanuvchi hali taklif joylamagan.</div>
-                        ) : (
-                          <div className="inspector-offers-list">
-                            {selectedInspectUser.offers.map((offer: any) => (
-                              <div className="inspector-offer-item" key={offer.id}>
-                                <div className="inspector-offer-meta">
-                                  <strong>{offer.canTeach}</strong> <span>↔</span> <span>{offer.wantsToLearn}</span>
-                                  <small className="offer-loc">📍 {offer.location || 'Toshkent'}</small>
-                                </div>
-                                <button
-                                  className="admin-delete-offer-btn"
-                                  onClick={() => handleDeleteOffer(offer.id)}
-                                  title="E‘lonni o‘chirish"
-                                  type="button"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="select-user-prompt">
-                      Chap tarafdagi ro‘yxatdan kuzatmoqchi bo‘lgan foydalanuvchini tanlang
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === 'reports' && adminData && (
-            <div className="admin-reports-list">
-              {adminData.reports.length === 0 ? (
-                <div className="no-reports-box">🎉 Hozirda hech qanday shikoyatlar yo‘q! Hammasi namunali.</div>
-              ) : (
-                adminData.reports.map((rep) => (
-                  <div className={`report-admin-card status-${rep.status}`} key={rep.id}>
-                    <div className="report-card-top">
-                      <div>
-                        <strong className="report-title">{rep.reasonTitle}</strong>
-                        <span className="report-target">
-                          Obyekt: {rep.targetName} {rep.targetUsername && `(@${rep.targetUsername})`}
-                        </span>
-                      </div>
-                      <span className={`report-status-badge ${rep.status}`}>{rep.status}</span>
-                    </div>
-
-                    <p className="report-desc-text">"{rep.description}"</p>
-
-                    <div className="report-card-footer">
-                      <small>Yuboruvchi: {rep.reporterName} (@{rep.reporterUsername})</small>
-                      {rep.status === 'pending' && (
-                        <button
-                          className="button button-cream resolve-btn"
-                          onClick={() => handleResolveReport(rep.id)}
-                          type="button"
-                        >
-                          <Check size={12} /> Ko‘rib chiqildi deb belgilash
-                        </button>
-                      )}
-                    </div>
+        <div className="swaps-list">
+          {list.map((swap) => (
+            <div className="swap-item-card" key={swap.id}>
+              <div className="swap-item-head">
+                <div>
+                  <strong>
+                    {tab === 'incoming'
+                      ? `${swap.senderName} (@${swap.senderUsername})`
+                      : `${swap.receiverName} (@${swap.receiverUsername})`}
+                  </strong>
+                  <div className="swap-item-skills">
+                    <span>{swap.offerCanTeach}</span> ↔ <span>{swap.proposedSkill}</span>
                   </div>
-                ))
-              )}
+                </div>
+                <span className={`tx-status ${swap.status === 'accepted' || swap.status === 'completed' ? 'completed' : swap.status === 'declined' ? 'rejected' : 'pending'}`}>
+                  {swap.status === 'pending'
+                    ? 'Kutilmoqda'
+                    : swap.status === 'accepted'
+                      ? 'Qabul qilindi'
+                      : swap.status === 'completed'
+                        ? 'Yakunlandi ✓'
+                        : 'Rad etildi'}
+                </span>
+              </div>
+
+              <p className="swap-item-msg">&ldquo;{swap.message}&rdquo;</p>
+
+              <div className="swap-item-actions">
+                {tab === 'incoming' && swap.status === 'pending' && (
+                  <>
+                    <button
+                      className="button button-primary"
+                      disabled={busyId === swap.id}
+                      onClick={() => handleAction(swap.id, 'accepted')}
+                      style={{ minHeight: 34, padding: '0 12px', fontSize: 11 }}
+                      type="button"
+                    >
+                      <Check size={13} /> Qabul qilish
+                    </button>
+                    <button
+                      className="button button-cream"
+                      disabled={busyId === swap.id}
+                      onClick={() => handleAction(swap.id, 'declined')}
+                      style={{ minHeight: 34, padding: '0 12px', fontSize: 11 }}
+                      type="button"
+                    >
+                      Rad etish
+                    </button>
+                  </>
+                )}
+                {swap.status === 'accepted' && (
+                  <button
+                    className="button button-primary"
+                    disabled={busyId === swap.id}
+                    onClick={() => handleAction(swap.id, 'completed')}
+                    style={{ minHeight: 34, padding: '0 12px', fontSize: 11 }}
+                    type="button"
+                  >
+                    <Sparkles size={13} /> Almashuv yakunlandi (+1 ◈)
+                  </button>
+                )}
+              </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </ModalFrame>
   )
 }
 
-// ---------------- PUBLIC PROFILE MODAL ----------------
+// ---------------- PUBLIC PROFILE MODAL (WITH REAL RATING & REVIEWS) ----------------
 export function PublicProfileModal({
   member,
   offers,
   revealedContacts,
+  currentUserId,
   onClose,
   onUnlockContact,
   onReport,
+  onProposeSwap,
+  onRatingUpdated,
+  onStartChat,
 }: {
   member: MemberUser
   offers: Offer[]
   revealedContacts: string[]
+  currentUserId?: number
   onClose: () => void
   onUnlockContact: (offer: Offer) => void
   onReport?: (member: MemberUser) => void
+  onProposeSwap?: (offer: Offer) => void
+  onRatingUpdated?: (message: string) => void
+  onStartChat?: (member: MemberUser, offer?: Offer) => void
 }) {
   const memberOffers = offers.filter(
     (o) => o.userId === member.id || (o.username && o.username === member.username)
   )
 
+  const [reviews, setReviews] = useState<UserReview[]>([])
+  const [avgRating, setAvgRating] = useState(member.rating || '5.0')
+  const [reviewsCount, setReviewsCount] = useState(member.reviewsCount || 0)
+  const [myRating, setMyRating] = useState(5)
+  const [myComment, setMyComment] = useState('')
+  const [submittingReview, setSubmittingReview] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviewSuccess, setReviewSuccess] = useState('')
+
+  const isOwnProfile = currentUserId !== undefined && currentUserId === member.id
+
+  async function loadReviews() {
+    try {
+      const params = new URLSearchParams()
+      if (member.username) params.set('username', member.username)
+      if (member.id) params.set('userId', String(member.id))
+      const res = await fetch(`/api/reviews?${params.toString()}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data.reviews)) setReviews(data.reviews)
+      if (data.averageRating) setAvgRating(data.averageRating)
+      if (typeof data.totalCount === 'number') setReviewsCount(data.totalCount)
+    } catch {}
+  }
+
+  useEffect(() => {
+    loadReviews()
+  }, [member.id, member.username])
+
+  async function handleReviewSubmit(e: FormEvent) {
+    e.preventDefault()
+    setReviewError('')
+    setReviewSuccess('')
+    const token = localStorage.getItem('swaply_token')
+    if (!token) {
+      setReviewError('Baho va sharh qoldirish uchun avval tizimga kiring')
+      return
+    }
+    if (myComment.trim().length < 3) {
+      setReviewError('Sharh kamida 3 ta belgidan iborat bo‘lishi kerak')
+      return
+    }
+
+    setSubmittingReview(true)
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          targetUserId: member.id,
+          targetUsername: member.username,
+          rating: myRating,
+          comment: myComment.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setReviewError(data.error || 'Baho saqlanmadi')
+        return
+      }
+      setMyComment('')
+      setReviewSuccess(data.message || 'Bahoyingiz saqlandi!')
+      if (data.averageRating) setAvgRating(data.averageRating)
+      if (typeof data.totalCount === 'number') setReviewsCount(data.totalCount)
+      await loadReviews()
+      onRatingUpdated?.(data.message || 'Reyting yangilandi!')
+    } catch {
+      setReviewError('Server bilan bog‘lanib bo‘lmadi')
+    } finally {
+      setSubmittingReview(false)
+    }
+  }
+
   return (
     <ModalFrame
-      description={`@${member.username} a‘zosining profili va e‘lonlari`}
+      description={`@${member.username} a‘zosining profili, e‘lonlari va reytingi`}
       onClose={onClose}
       size="wide"
       title={member.name}
@@ -1970,7 +2013,7 @@ export function PublicProfileModal({
           <div className="public-profile-title-row">
             <h3>{member.name}</h3>
             {member.verified && <BadgeCheck className="verified-icon" size={16} />}
-            {onReport && (
+            {onReport && !isOwnProfile && (
               <button
                 className="public-report-btn"
                 onClick={() => onReport(member)}
@@ -1988,7 +2031,7 @@ export function PublicProfileModal({
               <MapPin size={12} /> {member.location || 'Toshkent'}
             </span>
             <span>
-              <Star fill="currentColor" size={12} /> 5.0 reyting
+              <Star fill="currentColor" size={12} /> {avgRating} reyting ({reviewsCount} sharh)
             </span>
             <span>
               <Tag size={12} /> {memberOffers.length} ta faol taklif
@@ -2012,7 +2055,7 @@ export function PublicProfileModal({
         ) : (
           <div className="public-offers-list">
             {memberOffers.map((offer) => {
-              const isRevealed = revealedContacts.includes(offer.id)
+              const isRevealed = revealedContacts.includes(offer.id) || isOwnProfile
               return (
                 <div className="public-offer-card" key={offer.id}>
                   <div className="public-offer-skills">
@@ -2027,23 +2070,121 @@ export function PublicProfileModal({
                   <div className="public-offer-bottom">
                     <span className="offer-category">{offer.category}</span>
                     <span className="offer-loc-tag">📍 {offer.location || 'Toshkent'}</span>
-                    {isRevealed ? (
-                      <span className="contact-unlocked-badge">
-                        ✓ {offer.telegram || offer.phone || offer.contact}
-                      </span>
-                    ) : (
-                      <button
-                        className="button button-contact"
-                        onClick={() => onUnlockContact(offer)}
-                        type="button"
-                      >
-                        <UnlockKeyhole size={13} /> Kontaktni ochish (1 ◈)
-                      </button>
-                    )}
+                    <div className="card-footer-cta-group">
+                      {onProposeSwap && !isOwnProfile && (
+                        <button
+                          className="button-swap-outline"
+                          onClick={() => onProposeSwap(offer)}
+                          type="button"
+                        >
+                          <ArrowLeftRight size={12} /> Taklif
+                        </button>
+                      )}
+                      {isRevealed ? (
+                        <>
+                          <span className="contact-unlocked-badge">
+                            ✓ {offer.telegram || offer.phone || offer.contact || 'Ochiq'}
+                          </span>
+                          {!isOwnProfile && member.id > 0 && onStartChat && (
+                            <button
+                              className="button button-contact start-chat-chip-btn"
+                              onClick={() => onStartChat(member, offer)}
+                              type="button"
+                            >
+                              <MessageCircle size={12} /> Chatni boshlash
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <button
+                          className="button button-contact"
+                          onClick={() => onUnlockContact(offer)}
+                          type="button"
+                        >
+                          <UnlockKeyhole size={13} /> Kontaktni ochish (1 ◈)
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Reyting va Sharhlar bo'limi */}
+      <div className="public-reviews-section">
+        <h4 className="public-offers-heading">
+          Reyting va Sharhlar ({reviewsCount})
+        </h4>
+
+        {!isOwnProfile && (
+          <form className="review-form-box" onSubmit={handleReviewSubmit}>
+            <div className="review-stars-picker">
+              <span>Baho bering:</span>
+              <div className="stars-row">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    aria-label={`${star} yulduz`}
+                    className={`star-pick-btn ${star <= myRating ? 'active' : ''}`}
+                    key={star}
+                    onClick={() => setMyRating(star)}
+                    type="button"
+                  >
+                    <Star fill={star <= myRating ? 'currentColor' : 'none'} size={17} />
+                  </button>
+                ))}
+              </div>
+              <strong className="star-rating-label">{myRating}.0 / 5.0</strong>
+            </div>
+
+            {reviewError && <div className="auth-error">{reviewError}</div>}
+            {reviewSuccess && <div className="wallet-success-banner">✓ {reviewSuccess}</div>}
+
+            <div className="review-input-row">
+              <input
+                className="form-control"
+                maxLength={300}
+                onChange={(e) => setMyComment(e.target.value)}
+                placeholder="Hamkorlik va tajriba almashuv haqida fikringizni yozing..."
+                value={myComment}
+              />
+              <button className="button button-primary" disabled={submittingReview} type="submit">
+                {submittingReview ? <Loader2 className="spin-icon" size={14} /> : 'Yuborish'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {reviews.length === 0 ? (
+          <div className="public-offers-empty">Hali sharhlar yo‘q. Birinchi bo‘lib baho bering!</div>
+        ) : (
+          <div className="reviews-list">
+            {reviews.map((rev) => (
+              <div className="review-item-card" key={rev.id}>
+                <div className="review-item-head">
+                  <div className="review-author">
+                    <img
+                      alt=""
+                      className="review-author-avatar"
+                      onError={(e) => {
+                        e.currentTarget.src = '/placeholder-user.jpg'
+                      }}
+                      src={rev.reviewerAvatar || '/placeholder-user.jpg'}
+                    />
+                    <div>
+                      <strong>{rev.reviewerName}</strong>
+                      <span>@{rev.reviewerUsername}</span>
+                    </div>
+                  </div>
+                  <span className="review-stars-badge">
+                    <Star fill="currentColor" size={11} /> {rev.rating}.0
+                  </span>
+                </div>
+                <p className="review-item-comment">{rev.comment}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>

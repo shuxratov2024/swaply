@@ -18,9 +18,12 @@ import {
   createPromoCode,
   togglePromoCode,
   deletePromoCode,
+  getMaskedSmtpSettings,
+  saveSmtpSettings,
   type UserRole,
 } from '@/lib/db'
 import { isAdminUser, parseJsonBody, requireStaff } from '@/lib/api-helpers'
+import { sendTestSmtpEmail } from '@/lib/mailer'
 
 const VALID_REPORT_STATUSES = new Set(['pending', 'reviewed', 'resolved'])
 const VALID_ROLES = new Set<UserRole>(['admin', 'supporter', 'user'])
@@ -39,6 +42,7 @@ export async function GET(request: NextRequest) {
     const transactions = getAllTransactions()
     const promoCodes = getAllPromoCodes()
     const logs = getAdminLogs()
+    const smtp = isAdminUser(staffAuth.user) ? getMaskedSmtpSettings() : undefined
 
     return NextResponse.json({
       currentRole: isAdminUser(staffAuth.user) ? 'admin' : 'supporter',
@@ -48,6 +52,7 @@ export async function GET(request: NextRequest) {
       transactions,
       promoCodes,
       logs,
+      ...(smtp ? { smtp } : {}),
     })
   } catch (error) {
     console.error('Admin GET error:', error)
@@ -253,6 +258,48 @@ export async function POST(request: NextRequest) {
       const ok = deletePromoCode(code, actor)
       if (!ok) return NextResponse.json({ error: 'Promo-kod topilmadi' }, { status: 404 })
       return NextResponse.json({ success: true })
+    }
+
+    if (action === 'saveSmtp') {
+      const { host, port, secure, user, pass, from, enabled } = parsed.data
+      if (typeof host !== 'string' || typeof user !== 'string') {
+        return NextResponse.json({ error: 'SMTP Host va Email majburiy' }, { status: 400 })
+      }
+      const result = saveSmtpSettings(
+        {
+          host,
+          port: typeof port === 'number' ? port : Number(port) || 465,
+          secure: Boolean(secure),
+          user,
+          pass: typeof pass === 'string' ? pass : undefined,
+          from: typeof from === 'string' ? from : user,
+          enabled: Boolean(enabled),
+        },
+        actor
+      )
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: 400 })
+      }
+      return NextResponse.json({ success: true, smtp: getMaskedSmtpSettings() })
+    }
+
+    if (action === 'testSmtp') {
+      const { testEmail } = parsed.data
+      const targetEmail =
+        typeof testEmail === 'string' && testEmail.includes('@')
+          ? testEmail.trim()
+          : staffAuth.user.email
+      const result = await sendTestSmtpEmail(targetEmail)
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error || 'Test xabar yuborib bo‘lmadi' },
+          { status: 502 }
+        )
+      }
+      return NextResponse.json({
+        success: true,
+        message: `Test xabar ${targetEmail} manziliga yuborildi!`,
+      })
     }
 
     return NextResponse.json({ error: 'Noma’lum amal' }, { status: 400 })

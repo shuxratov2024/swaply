@@ -40,7 +40,22 @@
       "bio": "",
       "coins": 6,
       "createdAt": "2026-11-26T17:19:13.958Z",
-      "lastClaimDate": "2026-11-26"
+      "lastClaimDate": "2026-11-26",
+      "banned": true
+    },
+    {
+      "id": 4,
+      "name": "Amir Shukhratov",
+      "username": "010",
+      "email": "temurshuxratov8@gmail.com",
+      "password": "$2b$10$rU6BdiDr2qhEQ1s0qKwvTOxTAEzcukLs8KNE7Z2OoTzdKcsIARNju",
+      "gender": "male",
+      "role": "user",
+      "avatar": "",
+      "bio": "",
+      "coins": 5,
+      "createdAt": "2026-11-27T16:14:13.238Z",
+      "banned": true
     }
   ],
   "offers": [
@@ -268,6 +283,34 @@
   ],
   "adminLogs": [
     {
+      "id": "log-1795799288201-687",
+      "actorId": 2,
+      "actorUsername": "amir",
+      "actorRole": "admin",
+      "action": "Foydalanuvchi bloklandi",
+      "target": "@010",
+      "createdAt": "2026-11-27T17:08:08.201Z"
+    },
+    {
+      "id": "log-1795799285264-766",
+      "actorId": 2,
+      "actorUsername": "amir",
+      "actorRole": "admin",
+      "action": "Foydalanuvchi bloklandi",
+      "target": "@777",
+      "createdAt": "2026-11-27T17:08:05.264Z"
+    },
+    {
+      "id": "log-1795795978370-503",
+      "actorId": 2,
+      "actorUsername": "amir",
+      "actorRole": "admin",
+      "action": "SMTP sozlamalari yangilandi",
+      "target": "smtp.gmail.com",
+      "details": "shukhratovamir010@gmail.com (Faol)",
+      "createdAt": "2026-11-27T16:12:58.370Z"
+    },
+    {
       "id": "log-1795711665865-287",
       "actorId": 2,
       "actorUsername": "amir",
@@ -315,20 +358,116 @@
       "createdAt": "2026-11-26T16:34:58.219Z"
     }
   ],
-  "otpChallenges": [
+  "otpChallenges": [],
+  "smtpSettings": {
+    "host": "smtp.gmail.com",
+    "port": 465,
+    "secure": true,
+    "user": "shukhratovamir010@gmail.com",
+    "pass": "wktc xgxg jviq dmkf",
+    "from": "support@swaply.uz",
+    "enabled": true,
+    "updatedAt": "2026-11-27T16:12:58.370Z"
+  },
+  "reviews": [],
+  "swaps": [],
+  "notifications": [],
+  "conversations": [
     {
-      "email": "shukhratovamir010@gmail.com",
-      "purpose": "login",
-      "codeHash": "c2ce9567eea4754f529f54cabc14b168cad746d1168f87218b5712b6c601ae0b",
-      "expiresAt": 1795713759857,
-      "attempts": 0
+      "id": "community",
+      "type": "community",
+      "participants": [],
+      "lastMessage": "Swaply hamjamiyatining umumiy chatiga xush kelibsiz!",
+      "lastMessageAt": "2026-11-27T16:41:28.250Z",
+      "createdAt": "2026-11-27T16:41:28.250Z"
+    }
+  ],
+  "chatMessages": [],
+  "assistantMessages": [
+    {
+      "id": "ast-u-1795798793031-251",
+      "userId": 2,
+      "role": "user",
+      "text": "Tangalar qanday ishlaydi?",
+      "locale": "UZ",
+      "createdAt": "2026-11-27T16:59:53.031Z"
     },
     {
-      "email": "shukhratovamir010@gmail.com",
-      "purpose": "reset",
-      "codeHash": "71d7fd95a8c3c7d846abb61229b8d73e19c55047bc9beeb27ccabbe832a9141d",
-      "expiresAt": 1795713760478,
-      "attempts": 0
+      "id": "ast-a-1795798793032-139",
+      "userId": 2,
+      "role": "assistant",
+      "text": "Swaply tangalari (◈) platformadagi ichki valyutadir:\n• Ro‘yxatdan o‘tganingizda +5 ta bepul tanga olasiz.\n• Har kuni topbardagi \"+1 tanga\" tugmasi orqali bepul kunlik bonus olishingiz mumkin.\n• Yakunlangan har bir barter almashuvi uchun +1 bonus tanga beriladi.\n• Hamyoningizni to‘ldirish narxi: 1 tanga = 1,000 UZS (katta paketlarda +40% gacha bonus bor).",
+      "locale": "UZ",
+      "source": "rule",
+      "createdAt": "2026-11-27T16:59:53.032Z"
+    },
+    {
+      "id": "ast-u-1795798794673-395",
+      "userId": 2,
+      "role": "user",
+      "text": "Kontakt qanday ochiladi?",
+      "locale": "UZ",
+      "createdAt": "2026-11-27T16:59:54.673Z"
+    },
+    {
+      "id": "ast-a-1795798794674-511",
+      "userId": 2,
+      "role": "assistant",
+      "text": "Kontakt ochish juda oson:\n1. O‘zingizga yoqqan taklif kartasidagi \"Kontaktni ochish (1 ◈)\" tugmasini bosing.\n2. Tasdiqlash oynasidan so‘ng 1 ta tanga yechiladi va foydalanuvchining Telegram, WhatsApp hamda telefon raqami ochiladi.\n3. Shundan so‘ng shu profil yonida \"Chatni boshlash\" tugmasi paydo bo‘lib, 1-on-1 shaxsiy chat ochishingiz mumkin!",
+      "locale": "UZ",
+      "source": "rule",
+      "createdAt": "2026-11-27T16:59:54.674Z"
+    },
+    {
+      "id": "ast-u-1795798797021-160",
+      "userId": 2,
+      "role": "user",
+      "text": "Xavfsizlik qoidalari",
+      "locale": "UZ",
+      "createdAt": "2026-11-27T16:59:57.021Z"
+    },
+    {
+      "id": "ast-a-1795798797022-389",
+      "userId": 2,
+      "role": "assistant",
+      "text": "Swaply xavfsizlik qoidalari:\n• Birinchi dars yoki uchrashuvni iloji boricha jamoat joyida yoki ochiq video qo‘ng‘iroqda o‘tkazing.\n• Begona insonlarga oldindan pul o‘tkazmang — Swaply faqat bilimga bilim (pulsiz barter) tamoyilida ishlaydi.\n• Shubhali yoki spam e‘lon ko‘rsangiz, kartadagi bayroqcha (🚩) orqali shikoyat yuboring.",
+      "locale": "UZ",
+      "source": "rule",
+      "createdAt": "2026-11-27T16:59:57.022Z"
+    },
+    {
+      "id": "ast-u-1795798800460-77",
+      "userId": 2,
+      "role": "user",
+      "text": "Skill almashish tartibi",
+      "locale": "UZ",
+      "createdAt": "2026-11-27T17:00:00.460Z"
+    },
+    {
+      "id": "ast-a-1795798800461-880",
+      "userId": 2,
+      "role": "assistant",
+      "text": "Skill almashish 3 qadamda amalga oshadi:\n1. \"+ Taklif qo‘shish\" orqali nima o‘rgata olishingiz va nima o‘rganmoqchi ekaningizni joylang.\n2. Boshqa a‘zolarga \"Taklif\" tugmasi bilan almashuv so‘rovi yuboring yoki kontaktini ochib bog‘laning.\n3. Almashuv yakunlangach \"Almashuvlarim\" bo‘limida yakunlang va bir-biringizga reyting/sharh qoldiring!",
+      "locale": "UZ",
+      "source": "rule",
+      "createdAt": "2026-11-27T17:00:00.461Z"
+    },
+    {
+      "id": "ast-u-1795798803438-430",
+      "userId": 2,
+      "role": "user",
+      "text": "Profil va e‘lon sozlash",
+      "locale": "UZ",
+      "createdAt": "2026-11-27T17:00:03.438Z"
+    },
+    {
+      "id": "ast-a-1795798803439-43",
+      "userId": 2,
+      "role": "assistant",
+      "text": "Profilni kuchaytirish uchun:\n• Topbardagi ismingiz ustiga bosib shaxsiy rasm, qisqacha bio va aniq @username kiriting.\n• E‘lon yaratishda kamida bitta faol aloqa vositasi (Telegram, telefon yoki WhatsApp) qo‘shing.\n• Yaxshi reyting va sharhlar ko‘proq hamkor jalb qiladi.",
+      "locale": "UZ",
+      "source": "rule",
+      "createdAt": "2026-11-27T17:00:03.439Z"
     }
   ]
 }

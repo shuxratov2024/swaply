@@ -1,6 +1,8 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -14,6 +16,7 @@ import {
   LogIn,
   Mail,
   MapPin,
+  MessageSquare,
   RefreshCw,
   Search,
   Shield,
@@ -31,9 +34,17 @@ import {
 import { Hero } from './hero'
 import { SkillCard } from './skill-card'
 import { Topbar } from './topbar'
+import { useSocket } from './socket-context'
 import type { AuthUser } from './swaply-modals'
 import { copy } from './translations'
-import { type Locale, type Offer, type MemberUser, type Gender, avatarOptions } from './types'
+import {
+  type Locale,
+  type Offer,
+  type MemberUser,
+  type Gender,
+  type AppNotification,
+  avatarOptions,
+} from './types'
 
 // Lazy-loaded modals to minimize initial bundle size
 const AuthModal = dynamic(() => import('./swaply-modals').then((m) => m.AuthModal), { ssr: false })
@@ -45,6 +56,8 @@ const ConfirmUnlockModal = dynamic(() => import('./swaply-modals').then((m) => m
 const SecurityNoticeModal = dynamic(() => import('./swaply-modals').then((m) => m.SecurityNoticeModal), { ssr: false })
 const ReportModal = dynamic(() => import('./swaply-modals').then((m) => m.ReportModal), { ssr: false })
 const ConfirmActionModal = dynamic(() => import('./swaply-modals').then((m) => m.ConfirmActionModal), { ssr: false })
+const SwapProposalModal = dynamic(() => import('./swaply-modals').then((m) => m.SwapProposalModal), { ssr: false })
+const MySwapsModal = dynamic(() => import('./swaply-modals').then((m) => m.MySwapsModal), { ssr: false })
 
 const initialOffers: Offer[] = [
   {
@@ -162,6 +175,8 @@ export function SwaplyApp({
   initialOffers?: Offer[]
   initialMembers?: MemberUser[]
 } = {}) {
+  const router = useRouter()
+  const { totalUnread } = useSocket()
   const [locale, setLocale] = useState<Locale>('UZ')
   const [offers, setOffers] = useState<Offer[]>(ssrOffers && ssrOffers.length > 0 ? ssrOffers : initialOffers)
   const [members, setMembers] = useState<MemberUser[]>(ssrMembers || [])
@@ -189,11 +204,17 @@ export function SwaplyApp({
     | 'securityNotice'
     | 'report'
     | 'confirmDelete'
+    | 'swapProposal'
+    | 'mySwaps'
     | null
   >(null)
 
   const [pendingDeleteOfferId, setPendingDeleteOfferId] = useState<string | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [selectedOfferForSwap, setSelectedOfferForSwap] = useState<Offer | null>(null)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
+  const [pendingSwapsCount, setPendingSwapsCount] = useState(0)
 
   const [selectedMember, setSelectedMember] = useState<MemberUser | null>(null)
   const [selectedOfferForUnlock, setSelectedOfferForUnlock] = useState<Offer | null>(null)
@@ -222,6 +243,17 @@ export function SwaplyApp({
 
   const text = copy[locale]
   const categories = [text.all, ...text.categories]
+
+  function handleLocaleChange(nextLocale: Locale) {
+    const currentIndex = categories.indexOf(activeCategory)
+    const nextText = copy[nextLocale]
+    const nextCategories = [nextText.all, ...nextText.categories]
+    setLocale(nextLocale)
+    setActiveCategory(nextCategories[currentIndex >= 0 ? currentIndex : 0])
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('swaply_locale', nextLocale)
+    }
+  }
 
   async function fetchData(showFeedback = false) {
     if (showFeedback) setIsRefreshing(true)
@@ -255,6 +287,43 @@ export function SwaplyApp({
     }
   }
 
+  async function fetchNotificationsAndSwaps() {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('swaply_token') : null
+    if (!token) return
+    try {
+      const [notifRes, swapsRes] = await Promise.all([
+        fetch('/api/notifications', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/swaps', { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+      if (notifRes.ok) {
+        const nData = await notifRes.json()
+        if (Array.isArray(nData.notifications)) setNotifications(nData.notifications)
+        if (typeof nData.unreadCount === 'number') setUnreadNotificationsCount(nData.unreadCount)
+      }
+      if (swapsRes.ok) {
+        const sData = await swapsRes.json()
+        if (Array.isArray(sData.incoming)) {
+          setPendingSwapsCount(sData.incoming.filter((s: { status: string }) => s.status === 'pending').length)
+        }
+      }
+    } catch {}
+  }
+
+  async function handleMarkNotificationsRead() {
+    const token = localStorage.getItem('swaply_token')
+    if (!token) return
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+        setUnreadNotificationsCount(0)
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     if (!ssrOffers || ssrOffers.length === 0 || !ssrMembers) {
       fetchData()
@@ -264,6 +333,23 @@ export function SwaplyApp({
       const savedFavs = localStorage.getItem('swaply_favorites')
       if (savedFavs) {
         setFavorites(JSON.parse(savedFavs))
+      }
+    } catch {}
+
+    // URL deep-link (?offer=<id> or ?user=<username>)
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const offerIdParam = params.get('offer')
+      const userParam = params.get('user')
+      if (offerIdParam && ssrOffers) {
+        const target = ssrOffers.find((o) => o.id === offerIdParam)
+        if (target) {
+          setSearch(target.canTeach)
+          openPublicProfile(target)
+        }
+      } else if (userParam && ssrMembers) {
+        const targetMember = ssrMembers.find((m) => m.username.toLowerCase() === userParam.toLowerCase())
+        if (targetMember) openPublicProfile(targetMember)
       }
     } catch {}
   }, [])
@@ -324,6 +410,7 @@ export function SwaplyApp({
                 setClaimed(true)
               }
               fetchData()
+              fetchNotificationsAndSwaps()
               setProfile({
                 name: data.user.name,
                 username: data.user.username || '',
@@ -356,7 +443,11 @@ export function SwaplyApp({
     setClaimed(false)
     setProfile({ name: '', username: '', bio: '', avatar: '', gender: 'male' })
     setRevealedContacts([])
+    setNotifications([])
+    setUnreadNotificationsCount(0)
+    setPendingSwapsCount(0)
     setFilterOnlyMine(false)
+    window.dispatchEvent(new Event('swaply-auth-changed'))
     fetchData()
   }
 
@@ -433,8 +524,11 @@ export function SwaplyApp({
       const selectedCategoryIndex = categories.indexOf(activeCategory)
       const matchesCategory =
         viewMode === 'favorites' ||
-        selectedCategoryIndex === 0 ||
-        offer.category === copy.UZ.categories[selectedCategoryIndex - 1]
+        selectedCategoryIndex <= 0 ||
+        offer.category === copy.UZ.categories[selectedCategoryIndex - 1] ||
+        offer.category === copy.RU.categories[selectedCategoryIndex - 1] ||
+        offer.category === copy.EN.categories[selectedCategoryIndex - 1] ||
+        offer.category === activeCategory
 
       const searchable =
         `${offer.name} @${offer.username || ''} ${offer.canTeach} ${offer.wantsToLearn} ${offer.category} ${offer.description} ${offer.location || ''}`.toLocaleLowerCase()
@@ -590,6 +684,56 @@ export function SwaplyApp({
       }
     }
     setModal('publicProfile')
+  }
+
+  function handleOpenSwapProposal(offer: Offer) {
+    if (!isLoggedIn) {
+      setAuthMode('login')
+      setAuthReason('Barter almashuv taklifi yuborish uchun avval tizimga kiring!')
+      setModal('auth')
+      showToast('Taklif yuborish uchun avval tizimga kiring')
+      return
+    }
+    if (offer.userId === authUser?.id) {
+      showToast('O‘zingizning e‘loningizga taklif yubora olmaysiz')
+      return
+    }
+    setSelectedOfferForSwap(offer)
+    setModal('swapProposal')
+  }
+
+  async function handleStartChat(targetUserId?: number, targetUsername?: string) {
+    const token = localStorage.getItem('swaply_token')
+    if (!token) {
+      setAuthMode('login')
+      setAuthReason('Shaxsiy chat ochish uchun avval tizimga kiring!')
+      setModal('auth')
+      return
+    }
+    try {
+      const res = await fetch('/api/chat/conversations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ targetUserId, targetUsername }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast(data.error || 'Chatni ochib bo‘lmadi')
+        return
+      }
+      router.push(`/chat?conversationId=${encodeURIComponent(data.conversation.id)}`)
+    } catch {
+      showToast('Server bilan bog‘lanishda xatolik')
+    }
+  }
+
+  function handleShareOffer(offer: Offer) {
+    const shareUrl = `${window.location.origin}/?offer=${encodeURIComponent(offer.id)}`
+    navigator.clipboard?.writeText(shareUrl)
+    showToast('Taklif havolasi nusxalandi!')
   }
 
   // Kontakt ochish tugmasi bosilganda:
@@ -843,7 +987,9 @@ export function SwaplyApp({
     setModal(null)
     setAuthReason('')
     showToast(`Xush kelibsiz, ${user.name}!`)
+    window.dispatchEvent(new Event('swaply-auth-changed'))
     fetchData()
+    fetchNotificationsAndSwaps()
   }
 
   function openSignInModal() {
@@ -884,15 +1030,23 @@ export function SwaplyApp({
           isLoggedIn={isLoggedIn}
           locale={locale}
           name={profile.name}
+          notifications={notifications}
           onAdd={handleAddOfferClick}
           onClaim={handleClaimDailyCoin}
           onEditProfile={handleProfileClick}
-          onLocaleChange={setLocale}
+          onLocaleChange={handleLocaleChange}
           onLogout={handleLogoutCleanup}
+          onMarkNotificationsRead={handleMarkNotificationsRead}
+          onOpenSwaps={() => {
+            fetchNotificationsAndSwaps()
+            setModal('mySwaps')
+          }}
           onRegister={openRegisterModal}
           onSelectUser={openPublicProfile}
           onSignIn={openSignInModal}
           onWalletClick={handleWalletClick}
+          pendingSwapsCount={pendingSwapsCount}
+          unreadNotificationsCount={unreadNotificationsCount}
           username={profile.username}
         />
 
@@ -1121,7 +1275,10 @@ export function SwaplyApp({
                           <Flag size={12} />
                         </button>
                         <span className="rating">
-                          <Star fill="currentColor" size={11} /> 5.0
+                          <Star fill="currentColor" size={11} /> {member.rating || '5.0'}
+                          {typeof member.reviewsCount === 'number' && member.reviewsCount > 0 && (
+                            <small style={{ opacity: 0.7 }}>({member.reviewsCount})</small>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1183,7 +1340,10 @@ export function SwaplyApp({
                     locale={locale}
                     offer={offer}
                     onDelete={handleDeleteOffer}
+                    onProposeSwap={handleOpenSwapProposal}
                     onReport={(o) => handleOpenReport(o, undefined)}
+                    onShare={handleShareOffer}
+                    onStartChat={(o) => handleStartChat(o.userId, o.username)}
                     onToggleBookmark={toggleBookmark}
                     onUnlock={handleUnlockContactClick}
                     onViewAuthorProfile={openPublicProfile}
@@ -1367,19 +1527,71 @@ export function SwaplyApp({
         />
       )}
 
+      {modal === 'swapProposal' && selectedOfferForSwap && (
+        <SwapProposalModal
+          offer={selectedOfferForSwap}
+          onClose={() => {
+            setModal(null)
+            setSelectedOfferForSwap(null)
+          }}
+          onSuccess={(msg) => {
+            showToast(msg)
+            fetchNotificationsAndSwaps()
+          }}
+        />
+      )}
+
+      {modal === 'mySwaps' && (
+        <MySwapsModal
+          onClose={() => setModal(null)}
+          onStatusUpdated={(msg, newCoins) => {
+            showToast(msg)
+            if (typeof newCoins === 'number') {
+              setCoins(newCoins)
+              if (authUser) {
+                const updated = { ...authUser, coins: newCoins }
+                setAuthUser(updated)
+                localStorage.setItem('swaply_user', JSON.stringify(updated))
+              }
+            }
+            fetchNotificationsAndSwaps()
+          }}
+        />
+      )}
+
       {modal === 'publicProfile' && selectedMember && (
         <PublicProfileModal
+          currentUserId={authUser?.id}
           member={selectedMember}
           offers={offers}
           onClose={() => {
             setModal(null)
             setSelectedMember(null)
           }}
+          onProposeSwap={handleOpenSwapProposal}
+          onRatingUpdated={(msg) => {
+            showToast(msg)
+            fetchData()
+          }}
           onReport={(m) => handleOpenReport(undefined, m)}
+          onStartChat={(m, o) => handleStartChat(m.id || o?.userId, m.username || o?.username)}
           onUnlockContact={handleUnlockContactClick}
           revealedContacts={revealedContacts}
         />
       )}
+
+      {isLoggedIn && (
+        <Link
+          aria-label="Swaply Chat"
+          className="chat-quick-fab"
+          href="/chat"
+          title="Swaply 3-in-1 Chat"
+        >
+          <MessageSquare size={18} />
+          {totalUnread > 0 && <span className="chat-fab-badge">{totalUnread}</span>}
+        </Link>
+      )}
+
       {showScrollTop && (
         <button
           aria-label="Yuqoriga qaytish"

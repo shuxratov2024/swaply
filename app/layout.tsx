@@ -1,5 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { SocketProvider } from '@/components/swaply/socket-context'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -46,7 +47,7 @@ export default function RootLayout({
   return (
     <html lang="uz" suppressHydrationWarning>
       <body className="antialiased" suppressHydrationWarning>
-        {children}
+        <SocketProvider>{children}</SocketProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

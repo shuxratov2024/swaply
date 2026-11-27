@@ -10,6 +10,7 @@ export type Offer = {
   avatar: string
   language: 'UZ' | 'RU' | 'EN'
   rating: string
+  reviewsCount?: number
   verified?: boolean
   canTeach: string
   wantsToLearn: string
@@ -36,6 +37,7 @@ export type MemberUser = {
   role?: UserRole
   coins?: number
   rating?: string
+  reviewsCount?: number
   verified?: boolean
   banned?: boolean
   offersCount: number
@@ -61,6 +63,88 @@ export type ReportItem = {
   reasonTitle: string
   description: string
   status: 'pending' | 'reviewed' | 'resolved'
+  createdAt: string
+}
+
+export type UserReview = {
+  id: string
+  targetUserId?: number
+  targetUsername: string
+  reviewerId: number
+  reviewerName: string
+  reviewerUsername: string
+  reviewerAvatar?: string
+  rating: number
+  comment: string
+  createdAt: string
+}
+
+export type SwapRequest = {
+  id: string
+  offerId: string
+  offerCanTeach: string
+  offerWantsToLearn: string
+  senderId: number
+  senderName: string
+  senderUsername: string
+  receiverId?: number
+  receiverName: string
+  receiverUsername: string
+  proposedSkill: string
+  message: string
+  status: 'pending' | 'accepted' | 'declined' | 'completed'
+  createdAt: string
+  updatedAt: string
+}
+
+export type AppNotification = {
+  id: string
+  userId: number
+  type: 'swap_request' | 'swap_update' | 'review' | 'payment' | 'system'
+  title: string
+  body: string
+  read: boolean
+  createdAt: string
+}
+
+export type ChatConversationType = 'community' | 'private'
+
+export type ChatConversationSummary = {
+  id: string
+  type: ChatConversationType
+  title: string
+  subtitle?: string
+  avatar?: string
+  targetUserId?: number
+  targetUsername?: string
+  targetRole?: UserRole
+  targetVerified?: boolean
+  lastMessage?: string
+  lastMessageAt?: string
+  unreadCount: number
+}
+
+export type ChatMessageItem = {
+  id: string
+  conversationId: string
+  senderId: number
+  senderName: string
+  senderUsername: string
+  senderAvatar?: string
+  senderRole?: UserRole
+  senderVerified?: boolean
+  text: string
+  readBy: number[]
+  createdAt: string
+}
+
+export type AssistantMessageItem = {
+  id: string
+  userId: number
+  role: 'user' | 'assistant'
+  text: string
+  locale: Locale
+  source?: 'rule' | 'gemini' | 'fallback'
   createdAt: string
 }
 

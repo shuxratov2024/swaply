@@ -95,6 +95,13 @@ export async function POST(request: NextRequest) {
       const otpCode = createOtpChallenge(cleanEmail, cleanPurpose)
       const mailResult = await sendOtpEmail(cleanEmail, otpCode, cleanPurpose)
 
+      if (mailResult.configured && !mailResult.delivered) {
+        return NextResponse.json(
+          { error: mailResult.error || 'Email yuborishda SMTP server xatoligi yuz berdi' },
+          { status: 502 }
+        )
+      }
+
       return NextResponse.json({
         success: true,
         delivered: mailResult.delivered,

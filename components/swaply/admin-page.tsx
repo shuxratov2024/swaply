@@ -16,8 +16,10 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Mail,
   RefreshCw,
   Search,
+  Send,
   Shield,
   Sparkles,
   Tag,
@@ -61,7 +63,7 @@ type AdminOffer = {
 }
 
 export function AdminPage() {
-  const [tab, setTab] = useState<'overview' | 'users' | 'payments' | 'offers' | 'reports'>('overview')
+  const [tab, setTab] = useState<'overview' | 'users' | 'payments' | 'offers' | 'reports' | 'smtp'>('overview')
   const [searchUser, setSearchUser] = useState('')
   const [userFilter, setUserFilter] = useState<'all' | 'staff' | 'reported' | 'banned'>('all')
   const [offerSearch, setOfferSearch] = useState('')
@@ -87,6 +89,18 @@ export function AdminPage() {
     transactions?: any[]
     promoCodes?: any[]
     logs?: any[]
+    smtp?: {
+      envConfigured: boolean
+      resendConfigured: boolean
+      host: string
+      port: number
+      secure: boolean
+      user: string
+      hasPassword: boolean
+      from: string
+      enabled: boolean
+      updatedAt?: string
+    }
   } | null>(null)
 
   const [selectedInspectUserId, setSelectedInspectUserId] = useState<number | null>(null)
@@ -117,6 +131,16 @@ export function AdminPage() {
   const [promoBonusPercent, setPromoBonusPercent] = useState('0')
   const [promoMaxUses, setPromoMaxUses] = useState('100')
   const [promoDesc, setPromoDesc] = useState('')
+
+  // SMTP form state
+  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com')
+  const [smtpPort, setSmtpPort] = useState('465')
+  const [smtpSecure, setSmtpSecure] = useState(true)
+  const [smtpUser, setSmtpUser] = useState('')
+  const [smtpPass, setSmtpPass] = useState('')
+  const [smtpFrom, setSmtpFrom] = useState('')
+  const [smtpEnabled, setSmtpEnabled] = useState(false)
+  const [testEmailTo, setTestEmailTo] = useState('')
 
   function showToast(message: string) {
     setToastMsg(message)
@@ -212,6 +236,14 @@ export function AdminPage() {
       if (!res.ok) return
       const data = await res.json()
       setAdminData(data)
+      if (data.smtp) {
+        setSmtpHost(data.smtp.host || 'smtp.gmail.com')
+        setSmtpPort(String(data.smtp.port || 465))
+        setSmtpSecure(Boolean(data.smtp.secure))
+        setSmtpUser(data.smtp.user || '')
+        setSmtpFrom(data.smtp.from || '')
+        setSmtpEnabled(Boolean(data.smtp.enabled))
+      }
       if (data.users?.length > 0) {
         setSelectedInspectUserId((prev) =>
           prev && data.users.some((u: any) => u.id === prev) ? prev : data.users[0].id
@@ -567,6 +599,19 @@ export function AdminPage() {
               <span className="admin-tab-count alert">{adminData?.stats?.pendingReports}</span>
             )}
           </button>
+          {isMainAdmin && (
+            <button
+              className={`admin-tab-btn ${tab === 'smtp' ? 'active' : ''}`}
+              onClick={() => setTab('smtp')}
+              type="button"
+            >
+              <Mail size={15} />
+              <span>SMTP & Pochta</span>
+              <span className={`admin-tab-count ${adminData?.smtp?.enabled ? '' : 'alert'}`}>
+                {adminData?.smtp?.enabled ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          )}
         </nav>
 
         {loading && !adminData ? (
@@ -1451,6 +1496,216 @@ export function AdminPage() {
                     ))
                   )}
                 </div>
+              </div>
+            )}
+
+            {tab === 'smtp' && adminData && isMainAdmin && (
+              <div className="admin-payments-layout">
+                <section className="admin-panel-card surface-card">
+                  <div className="panel-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <h3>
+                      <Mail size={16} /> SMTP Pochta Serverini Sozlash (OTP & Reset Password)
+                    </h3>
+                    <span className={`tx-status ${adminData.smtp?.enabled || adminData.smtp?.resendConfigured ? 'completed' : 'pending'}`}>
+                      {adminData.smtp?.resendConfigured
+                        ? 'Resend API Faol'
+                        : adminData.smtp?.enabled
+                          ? 'SMTP Faol (Real Email)'
+                          : 'Sozlanmagan (Dev rejim)'}
+                    </span>
+                  </div>
+
+                  <p className="panel-empty" style={{ textAlign: 'left', padding: '0 0 14px' }}>
+                    Gmail uchun: Google hisobingizda <strong>2-Bosqichli Himoya (2FA)</strong> ni yoqing va{' '}
+                    <strong>App Passwords</strong> bo‘limidan 16 xonali parol olib quyiga kiriting. Shundan so‘ng
+                    Kirish, Ro‘yxatdan o‘tish va Parolni tiklash (Reset Password) kodlari to‘g‘ridan-to‘g‘ri foydalanuvchi pochtasiga boradi.
+                  </p>
+
+                  <div className="admin-filter-pills" style={{ marginBottom: 14 }}>
+                    <button
+                      className="admin-filter-pill"
+                      onClick={() => {
+                        setSmtpHost('smtp.gmail.com')
+                        setSmtpPort('465')
+                        setSmtpSecure(true)
+                      }}
+                      type="button"
+                    >
+                      Gmail (465 SSL)
+                    </button>
+                    <button
+                      className="admin-filter-pill"
+                      onClick={() => {
+                        setSmtpHost('smtp.gmail.com')
+                        setSmtpPort('587')
+                        setSmtpSecure(false)
+                      }}
+                      type="button"
+                    >
+                      Gmail (587 STARTTLS)
+                    </button>
+                    <button
+                      className="admin-filter-pill"
+                      onClick={() => {
+                        setSmtpHost('smtp.yandex.ru')
+                        setSmtpPort('465')
+                        setSmtpSecure(true)
+                      }}
+                      type="button"
+                    >
+                      Yandex (465 SSL)
+                    </button>
+                    <button
+                      className="admin-filter-pill"
+                      onClick={() => {
+                        setSmtpHost('smtp-relay.brevo.com')
+                        setSmtpPort('587')
+                        setSmtpSecure(false)
+                      }}
+                      type="button"
+                    >
+                      Brevo (587 STARTTLS)
+                    </button>
+                  </div>
+
+                  <form
+                    className="create-user-grid"
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      const ok = await postAdminAction(
+                        {
+                          action: 'saveSmtp',
+                          host: smtpHost,
+                          port: parseInt(smtpPort, 10) || 465,
+                          secure: smtpSecure,
+                          user: smtpUser,
+                          pass: smtpPass,
+                          from: smtpFrom || smtpUser,
+                          enabled: smtpEnabled,
+                        },
+                        'SMTP sozlamalari saqlandi!'
+                      )
+                      if (ok) setSmtpPass('')
+                    }}
+                  >
+                    <div className="admin-field">
+                      <label>SMTP Host</label>
+                      <input
+                        className="form-control"
+                        onChange={(e) => setSmtpHost(e.target.value)}
+                        placeholder="smtp.gmail.com"
+                        required
+                        value={smtpHost}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>SMTP Port</label>
+                      <input
+                        className="form-control"
+                        onChange={(e) => {
+                          setSmtpPort(e.target.value)
+                          if (e.target.value === '465') setSmtpSecure(true)
+                          if (e.target.value === '587') setSmtpSecure(false)
+                        }}
+                        placeholder="465"
+                        required
+                        type="number"
+                        value={smtpPort}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>Ulanish turi</label>
+                      <select
+                        className="form-control form-select"
+                        onChange={(e) => setSmtpSecure(e.target.value === 'ssl')}
+                        value={smtpSecure ? 'ssl' : 'starttls'}
+                      >
+                        <option value="ssl">SSL / TLS (465)</option>
+                        <option value="starttls">STARTTLS (587)</option>
+                      </select>
+                    </div>
+                    <div className="admin-field">
+                      <label>SMTP Email (User)</label>
+                      <input
+                        className="form-control"
+                        onChange={(e) => setSmtpUser(e.target.value)}
+                        placeholder="your-email@gmail.com"
+                        required
+                        type="email"
+                        value={smtpUser}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>
+                        App Password {adminData.smtp?.hasPassword ? '(saqlangan — yangilash uchun kiriting)' : ''}
+                      </label>
+                      <input
+                        className="form-control"
+                        onChange={(e) => setSmtpPass(e.target.value)}
+                        placeholder={adminData.smtp?.hasPassword ? '••••••••••••••••' : '16 xonali App Password'}
+                        type="password"
+                        value={smtpPass}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>Yuboruvchi (From)</label>
+                      <input
+                        className="form-control"
+                        onChange={(e) => setSmtpFrom(e.target.value)}
+                        placeholder="Swaply <your-email@gmail.com>"
+                        value={smtpFrom}
+                      />
+                    </div>
+                    <div className="admin-field">
+                      <label>Holati</label>
+                      <select
+                        className="form-control form-select"
+                        onChange={(e) => setSmtpEnabled(e.target.value === 'on')}
+                        value={smtpEnabled ? 'on' : 'off'}
+                      >
+                        <option value="on">Yoqilgan (Real Email yuborish)</option>
+                        <option value="off">O‘chirilgan</option>
+                      </select>
+                    </div>
+                    <div className="admin-field" style={{ justifyContent: 'flex-end' }}>
+                      <button className="button button-primary" disabled={actionBusy} type="submit">
+                        {actionBusy ? <Loader2 className="spin-icon" size={14} /> : 'SMTP Sozlamalarini Saqlash'}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+
+                <section className="admin-panel-card surface-card">
+                  <div className="panel-card-header">
+                    <h3>
+                      <Send size={16} /> SMTP Test Xabar Yuborish
+                    </h3>
+                  </div>
+                  <form
+                    className="wallet-promo-row"
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      await postAdminAction(
+                        {
+                          action: 'testSmtp',
+                          testEmail: testEmailTo.trim() || currentAdmin?.email || smtpUser,
+                        },
+                        `Test xabar ${testEmailTo.trim() || currentAdmin?.email || smtpUser} ga yuborildi!`
+                      )
+                    }}
+                  >
+                    <input
+                      className="form-control"
+                      onChange={(e) => setTestEmailTo(e.target.value)}
+                      placeholder={currentAdmin?.email || 'Qabul qiluvchi email (masalan: test@gmail.com)'}
+                      type="email"
+                      value={testEmailTo}
+                    />
+                    <button className="button button-primary" disabled={actionBusy} type="submit">
+                      {actionBusy ? <Loader2 className="spin-icon" size={14} /> : 'Test xabar yuborish'}
+                    </button>
+                  </form>
+                </section>
               </div>
             )}
           </main>

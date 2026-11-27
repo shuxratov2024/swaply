@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import {
-  ArrowUpRight,
+  ArrowLeftRight,
   BadgeCheck,
   Check,
   Copy,
@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Phone,
   Send,
+  Share2,
   Star,
   Trash2,
   UnlockKeyhole,
@@ -30,6 +31,9 @@ export function SkillCard({
   onToggleBookmark,
   onViewAuthorProfile,
   onReport,
+  onProposeSwap,
+  onShare,
+  onStartChat,
 }: {
   offer: Offer
   locale: Locale
@@ -41,9 +45,13 @@ export function SkillCard({
   onToggleBookmark?: (offerId: string) => void
   onViewAuthorProfile?: (offer: Offer) => void
   onReport?: (offer: Offer) => void
+  onProposeSwap?: (offer: Offer) => void
+  onShare?: (offer: Offer) => void
+  onStartChat?: (offer: Offer) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [copiedUsername, setCopiedUsername] = useState(false)
+  const [shared, setShared] = useState(false)
   const text = copy[locale]
 
   const isUnlocked = revealed || isOwner
@@ -173,8 +181,37 @@ export function SkillCard({
             </button>
           )}
 
-          <span className="rating">
+          {onShare && (
+            <button
+              aria-label="Taklif havolasini ulashish"
+              className="card-report-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                onShare(offer)
+                setShared(true)
+                setTimeout(() => setShared(false), 1800)
+              }}
+              title="Havolani nusxalash"
+              type="button"
+            >
+              {shared ? <Check size={13} /> : <Share2 size={13} />}
+            </button>
+          )}
+
+          <span
+            className="rating"
+            onClick={(e) => {
+              e.stopPropagation()
+              onViewAuthorProfile?.(offer)
+            }}
+            role="button"
+            style={{ cursor: 'pointer' }}
+            title="Reyting va sharhlarni ko‘rish"
+          >
             <Star aria-hidden="true" fill="currentColor" size={12} /> {offer.rating}
+            {typeof offer.reviewsCount === 'number' && offer.reviewsCount > 0 && (
+              <small style={{ opacity: 0.7 }}>({offer.reviewsCount})</small>
+            )}
           </span>
 
           {isOwner && onDelete && (
@@ -183,9 +220,7 @@ export function SkillCard({
               className="card-delete-button"
               onClick={(e) => {
                 e.stopPropagation()
-                if (window.confirm('Haqiqatan ham bu e‘loningizni o‘chirmoqchimisiz?')) {
-                  onDelete(offer.id)
-                }
+                onDelete(offer.id)
               }}
               title="E‘lonni o‘chirish"
               type="button"
@@ -261,6 +296,18 @@ export function SkillCard({
               )}
             </div>
 
+            {!isOwner && offer.userId && onStartChat && (
+              <button
+                className="button button-contact start-chat-chip-btn"
+                onClick={() => onStartChat(offer)}
+                title="1-on-1 shaxsiy chatni boshlash"
+                type="button"
+              >
+                <MessageCircle size={12} />
+                <span>{locale === 'RU' ? 'Начать чат' : locale === 'EN' ? 'Start Chat' : 'Chatni boshlash'}</span>
+              </button>
+            )}
+
             <button
               aria-label="Kontaktni nusxalash"
               className="copy-contact-button"
@@ -272,14 +319,28 @@ export function SkillCard({
             </button>
           </div>
         ) : (
-          <button
-            aria-label={`${offer.name} ${text.contact} (1 coin)`}
-            className="button button-contact"
-            onClick={() => onUnlock(offer)}
-            type="button"
-          >
-            <UnlockKeyhole aria-hidden="true" size={13} /> {text.contact} <span className="contact-price">1 ◈</span>
-          </button>
+          <div className="card-footer-cta-group">
+            {onProposeSwap && !isOwner && (
+              <button
+                aria-label="Almashuv taklif qilish"
+                className="button-swap-outline"
+                onClick={() => onProposeSwap(offer)}
+                title="Barter almashuv taklifi yuborish"
+                type="button"
+              >
+                <ArrowLeftRight size={12} />
+                <span>Taklif</span>
+              </button>
+            )}
+            <button
+              aria-label={`${offer.name} ${text.contact} (1 coin)`}
+              className="button button-contact"
+              onClick={() => onUnlock(offer)}
+              type="button"
+            >
+              <UnlockKeyhole aria-hidden="true" size={13} /> {text.contact} <span className="contact-price">1 ◈</span>
+            </button>
+          </div>
         )}
       </div>
     </article>

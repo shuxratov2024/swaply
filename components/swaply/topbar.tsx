@@ -1,15 +1,19 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import {
+  ArrowLeftRight,
   ArrowUpRight,
   BadgeCheck,
+  Bell,
   Check,
   ChevronDown,
   Coins,
   Globe2,
   LogIn,
   LogOut,
+  MessageSquare,
   Plus,
   Search,
   Star,
@@ -18,8 +22,9 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import type { Locale, MemberUser } from './types'
+import type { AppNotification, Locale, MemberUser } from './types'
 import { copy } from './translations'
+import { useSocket } from './socket-context'
 
 export function Topbar({
   coins,
@@ -29,6 +34,9 @@ export function Topbar({
   avatar,
   locale,
   isLoggedIn,
+  pendingSwapsCount = 0,
+  notifications = [],
+  unreadNotificationsCount = 0,
   onLocaleChange,
   onClaim,
   onAdd,
@@ -38,6 +46,8 @@ export function Topbar({
   onLogout,
   onWalletClick,
   onSelectUser,
+  onOpenSwaps,
+  onMarkNotificationsRead,
 }: {
   coins: number
   claimed: boolean
@@ -46,6 +56,9 @@ export function Topbar({
   avatar: string
   locale: Locale
   isLoggedIn: boolean
+  pendingSwapsCount?: number
+  notifications?: AppNotification[]
+  unreadNotificationsCount?: number
   onLocaleChange: (locale: Locale) => void
   onClaim: () => void
   onAdd: () => void
@@ -55,13 +68,18 @@ export function Topbar({
   onLogout: () => void
   onWalletClick?: () => void
   onSelectUser?: (member: MemberUser) => void
+  onOpenSwaps?: () => void
+  onMarkNotificationsRead?: () => void
 }) {
   const text = copy[locale]
+  const { totalUnread } = useSocket()
   const [headerSearch, setHeaderSearch] = useState('')
   const [searchResults, setSearchResults] = useState<MemberUser[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
+  const [showNotifs, setShowNotifs] = useState(false)
   const [searching, setSearching] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const notifRef = useRef<HTMLDivElement>(null)
 
   // Headerda foydalanuvchilarni Ism, Familiya va @username orqali qidirish (AbortController bilan)
   useEffect(() => {
@@ -109,10 +127,14 @@ export function Topbar({
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(false)
       }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifs(false)
+      }
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setShowDropdown(false)
+        setShowNotifs(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -216,6 +238,83 @@ export function Topbar({
         </div>
 
         <div className="topbar-actions">
+          {isLoggedIn && (
+            <Link
+              aria-label="Swaply Chat"
+              className="topbar-icon-pill"
+              href="/chat"
+              title="Swaply 3-in-1 Chat (Yordamchi, Community, Shaxsiy)"
+            >
+              <MessageSquare size={14} />
+              <span className="topbar-pill-text">Chat</span>
+              {totalUnread > 0 && (
+                <span className="topbar-badge-count">{totalUnread}</span>
+              )}
+            </Link>
+          )}
+
+          {isLoggedIn && onOpenSwaps && (
+            <button
+              aria-label="Almashuvlarim"
+              className="topbar-icon-pill"
+              onClick={onOpenSwaps}
+              title="Almashuv takliflari va kelishuvlar"
+              type="button"
+            >
+              <ArrowLeftRight size={14} />
+              <span className="topbar-pill-text">Almashuv</span>
+              {pendingSwapsCount > 0 && (
+                <span className="topbar-badge-count">{pendingSwapsCount}</span>
+              )}
+            </button>
+          )}
+
+          {isLoggedIn && (
+            <div className="notif-wrap" ref={notifRef}>
+              <button
+                aria-label="Bildirishnomalar"
+                className="topbar-icon-pill notif-bell-btn"
+                onClick={() => setShowNotifs((v) => !v)}
+                title="Bildirishnomalar"
+                type="button"
+              >
+                <Bell size={14} />
+                {unreadNotificationsCount > 0 && (
+                  <span className="topbar-badge-count">{unreadNotificationsCount}</span>
+                )}
+              </button>
+
+              {showNotifs && (
+                <div className="notif-dropdown surface-card">
+                  <div className="notif-dropdown-header">
+                    <strong>Bildirishnomalar</strong>
+                    {unreadNotificationsCount > 0 && onMarkNotificationsRead && (
+                      <button
+                        className="otp-link-btn"
+                        onClick={() => onMarkNotificationsRead()}
+                        type="button"
+                      >
+                        O‘qilgan qilish
+                      </button>
+                    )}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="dropdown-empty">Hozircha bildirishnomalar yo‘q</div>
+                  ) : (
+                    <div className="notif-list">
+                      {notifications.slice(0, 8).map((n) => (
+                        <div className={`notif-item ${n.read ? 'is-read' : 'is-unread'}`} key={n.id}>
+                          <strong>{n.title}</strong>
+                          <p>{n.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {isLoggedIn && (
             <div
               className="wallet-pill"
